@@ -43,6 +43,8 @@ contract SubnetNode is Ownable, EIP712 {
         uint256 lastActiveTime; // Timestamp of the last activity in the session (used to track inactivity)
         uint256 deposit; // The deposit made by the client to start the session, used to calculate costs
         PricingType pricingType; // The pricing method used for this session (ByGB or ByHour)
+        uint256 pricePerGB; // Price per GB of data (fixed at session creation)
+        uint256 pricePerHour; // Price per hour (fixed at session creation)
     }
 
     // EIP-712 struct for UpdateUsage message
@@ -91,9 +93,7 @@ contract SubnetNode is Ownable, EIP712 {
     );
 
     // Event to be emitted when a Node is deleted
-    event NodeDeleted(
-        address indexed nodeAddress
-    );
+    event NodeDeleted(address indexed nodeAddress);
 
     // Event for creating a new session
     event SessionCreated(
@@ -104,7 +104,7 @@ contract SubnetNode is Ownable, EIP712 {
         PricingType pricingType
     );
 
-     // Event for updating session usage
+    // Event for updating session usage
     event UsageUpdated(
         bytes32 indexed sessionId,
         uint256 downloadBytes,
@@ -113,11 +113,8 @@ contract SubnetNode is Ownable, EIP712 {
         uint256 lastActiveTime
     );
 
-     // Event for session refund
-    event SessionRefunded(
-        bytes32 indexed sessionId,
-        uint256 refundAmount
-    );
+    // Event for session refund
+    event SessionRefunded(bytes32 indexed sessionId, uint256 refundAmount);
 
     // Modifier to only allow registered Nodes to call the function
     modifier onlyRegisteredNode(address node) {
@@ -173,7 +170,13 @@ contract SubnetNode is Ownable, EIP712 {
         });
 
         // Emit the NodeRegistered event after a successful registration
-        emit NodeRegistered(msg.sender, name, publicKey, pricePerGB, pricePerHour);
+        emit NodeRegistered(
+            msg.sender,
+            name,
+            publicKey,
+            pricePerGB,
+            pricePerHour
+        );
     }
 
     // Function to allow the Node to update its activity status
@@ -197,7 +200,8 @@ contract SubnetNode is Ownable, EIP712 {
     // Function for the client to initiate a new session with a specified Node
     function createSession(
         address node,
-        PricingType pricingType
+        PricingType pricingType,
+        uint256 price
     ) public payable returns (bytes32) {
         // Ensure that the specified Node is registered in the system
         require(nodes[node].registered, "Node not registered");
@@ -210,6 +214,18 @@ contract SubnetNode is Ownable, EIP712 {
 
         // Ensure that the client deposits some value to start the session
         require(msg.value > 0, "Deposit must be greater than 0"); // Deposit must be greater than 0
+
+        if (pricingType == PricingType.ByGB) {
+            require(
+                nodes[node].pricePerGB == price,
+                "Deposit must match the node's price per GB"
+            ); // Ensure the deposit matches the node's price per GB
+        } else {
+            require(
+                nodes[node].pricePerHour == price,
+                "Deposit must match the node's price per hour"
+            ); // Ensure the deposit matches the node's price per hour
+        }
 
         // Generate a unique sessionId using the client's address, the node's address, and the current timestamp
         bytes32 sessionId = keccak256(
@@ -228,11 +244,25 @@ contract SubnetNode is Ownable, EIP712 {
             pricingType: pricingType, // Store the pricing type (either ByGB or ByHour)
             uploadBytes: 0, // Initialize upload bytes as 0, to be updated later
             downloadBytes: 0, // Initialize download bytes as 0, to be updated later
-            duration: 0 // Initialize the session duration as 0, to be updated later
+            duration: 0, // Initialize the session duration as 0, to be updated later
+            pricePerGB: 0, // Use the node's price per GB
+            pricePerHour: 0 // Use the node's price per hour
         });
 
-         // Emit the SessionCreated event
-        emit SessionCreated(sessionId, msg.sender, node, msg.value, pricingType);
+        if (pricingType == PricingType.ByGB) {
+            sessions[sessionId].pricePerGB = price;
+        } else {
+            sessions[sessionId].pricePerHour = price;
+        }
+
+        // Emit the SessionCreated event
+        emit SessionCreated(
+            sessionId,
+            msg.sender,
+            node,
+            msg.value,
+            pricingType
+        );
 
         // Return the unique sessionId to the client so they can reference it for future operations
         return sessionId; // The client can now interact with the session using this sessionId
@@ -265,7 +295,7 @@ contract SubnetNode is Ownable, EIP712 {
 
         // Create the EIP-712 typed data hash
         bytes32 structHash = _hashTypedDataV4(_hashUpdateUsageData(data));
-         // Recover the address of the signer from the provided signature
+        // Recover the address of the signer from the provided signature
         address signer = ECDSA.recover(structHash, clientSignature);
         require(signer == session.client, "Invalid client signature");
 
@@ -282,7 +312,13 @@ contract SubnetNode is Ownable, EIP712 {
         usedMessageHashes[structHash] = true; // Mark the messageHash as used
 
         // Emit the event for data usage update
-        emit UsageUpdated(sessionId, downloadBytes, uploadBytes, duration, block.timestamp);
+        emit UsageUpdated(
+            sessionId,
+            downloadBytes,
+            uploadBytes,
+            duration,
+            block.timestamp
+        );
     }
 
     // Function to end a session and settle the payment
@@ -310,7 +346,7 @@ contract SubnetNode is Ownable, EIP712 {
             uint256 totalBytes = session.downloadBytes + session.uploadBytes;
 
             // Calculate the price per byte (since price is in per GB)
-            uint256 bytePrice = nodes[session.node].pricePerGB / 1e9; // 1e9 is used to convert GB to bytes
+            uint256 bytePrice = session.pricePerGB / 1e9; // 1e9 is used to convert GB to bytes
 
             // Calculate the total cost based on the total bytes used
             totalCost = bytePrice * totalBytes;
@@ -318,7 +354,7 @@ contract SubnetNode is Ownable, EIP712 {
         // If the pricing model is based on Hour (time spent)
         else if (session.pricingType == PricingType.ByHour) {
             // Calculate the price per second (price per hour divided by 3600 seconds)
-            uint256 secondPrice = nodes[session.node].pricePerHour / 3600;
+            uint256 secondPrice = session.pricePerHour / 3600;
 
             // Calculate the total cost based on the session's duration
             totalCost = session.duration * secondPrice;
@@ -356,7 +392,15 @@ contract SubnetNode is Ownable, EIP712 {
             payable(session.client).transfer(refundAmount);
         }
         // Emit event with the session ending details
-        emit SessionEnded(sessionId, totalCost, refundAmount, (paymentAmount * protocolCommissionPercentage) / 1000000, paymentAmount - (paymentAmount * protocolCommissionPercentage) / 1000000);
+        emit SessionEnded(
+            sessionId,
+            totalCost,
+            refundAmount,
+            (paymentAmount * protocolCommissionPercentage) / 1000000,
+            paymentAmount -
+                (paymentAmount * protocolCommissionPercentage) /
+                1000000
+        );
     }
 
     // Function for the client to request a refund if the session has been inactive for too long
