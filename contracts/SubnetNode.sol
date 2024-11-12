@@ -55,15 +55,6 @@ contract SubnetNode is Ownable, EIP712 {
         uint256 duration;
     }
 
-    // Event for session end
-    event SessionEnded(
-        bytes32 indexed sessionId,
-        uint256 totalCost,
-        uint256 refundAmount,
-        uint256 protocolCommission,
-        uint256 nodePayment
-    );
-
     // Mapping to store Node information, accessible via the Node's address
     mapping(address => NodeInfo) public nodes;
 
@@ -115,6 +106,23 @@ contract SubnetNode is Ownable, EIP712 {
 
     // Event for session refund
     event SessionRefunded(bytes32 indexed sessionId, uint256 refundAmount);
+
+    // Event for session end
+    event SessionEnded(
+        bytes32 indexed sessionId,
+        uint256 totalCost,
+        uint256 refundAmount,
+        uint256 protocolCommission,
+        uint256 nodePayment
+    );
+
+    // Event to log the update of node information
+    event NodeUpdated(
+        address indexed nodeAddress,
+        string name,
+        uint256 pricePerGB,
+        uint256 pricePerHour
+    );
 
     // Modifier to only allow registered Nodes to call the function
     modifier onlyRegisteredNode(address node) {
@@ -177,6 +185,25 @@ contract SubnetNode is Ownable, EIP712 {
             pricePerGB,
             pricePerHour
         );
+    }
+
+    // Function to allow the Node to update its information
+    function updateNodeInfo(
+        string memory name, // The new name of the Node
+        bytes memory publicKey, // The new public key of the Node
+        uint256 pricePerGB, // The new price per GB of data
+        uint256 pricePerHour // The new price per hour
+    ) public onlyRegisteredNode(msg.sender) {
+        NodeInfo storage node = nodes[msg.sender]; // Get the node info
+
+        // Update node information
+        node.name = name;
+        node.publicKey = publicKey;
+        node.pricePerGB = pricePerGB;
+        node.pricePerHour = pricePerHour;
+
+        // Emit an event to log the update
+        emit NodeUpdated(msg.sender, name, pricePerGB, pricePerHour);
     }
 
     // Function to allow the Node to update its activity status
