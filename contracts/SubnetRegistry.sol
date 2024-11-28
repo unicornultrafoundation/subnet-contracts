@@ -11,7 +11,7 @@ interface IERC721 {
 
 contract SubnetRegistry is Ownable {
     address public immutable nftContract; // Allowed NFT contract
-    uint256 public immutable rewardPerSecond; // Reward per second of uptime
+    uint256 public rewardPerSecond; // Reward per second of uptime
     uint256 public subnetCounter; // Subnet ID counter
     bytes32 public merkleRoot; // Merkle root for uptime validation
 
@@ -33,6 +33,7 @@ contract SubnetRegistry is Ownable {
     event SubnetRegistered(uint256 indexed subnetId, address indexed owner, uint256 nftId, string peerAddr, string metadata);
     event SubnetDeregistered(uint256 indexed subnetId, address indexed owner, string peerAddr, uint256 uptime);
     event RewardClaimed(uint256 indexed subnetId, address indexed owner, string peerAddr, uint256 amount);
+    event RewardPerSecondUpdated(uint256 oldRewardPerSecond, uint256 newRewardPerSecond);
 
     /**
      * @dev Constructor to set immutable variables.
@@ -44,6 +45,18 @@ contract SubnetRegistry is Ownable {
         require(_rewardPerSecond > 0, "Reward must be greater than zero");
         nftContract = _nftContract;
         rewardPerSecond = _rewardPerSecond;
+    }
+
+     /**
+     * @dev Update the reward per second.
+     * @param _rewardPerSecond New reward amount per second
+     */
+    function updateRewardPerSecond(uint256 _rewardPerSecond) external onlyOwner {
+        require(_rewardPerSecond > 0, "Reward must be greater than zero");
+        uint256 oldRewardPerSecond = rewardPerSecond;
+        rewardPerSecond = _rewardPerSecond;
+
+        emit RewardPerSecondUpdated(oldRewardPerSecond, _rewardPerSecond);
     }
 
     /**
