@@ -10,6 +10,7 @@ contract SubnetRental {
         uint256 cpuPrice; // Rental price per second for CPU
         uint256 memoryPrice; // Rental price per second for memory
         uint256 storagePrice; // Rental price per second for storage
+        uint256 gpuPrice; // Rental price per second for GPU
     }
 
     struct Rental {
@@ -18,6 +19,10 @@ contract SubnetRental {
         uint256 startTime; // Start time of the rental
         uint256 endTime; // End time of the rental
         uint256 totalCost; // Total rental cost
+        uint256 cpu; // Number of CPUs rented
+        uint256 memoryAmount; // Amount of memory rented (in MB)
+        uint256 storageCapacity; // Amount of storage rented (in GB)
+        uint256 gpu; // Number of GPUs rented
         bool active; // Rental status
     }
 
@@ -29,7 +34,8 @@ contract SubnetRental {
         uint256 indexed subnetId,
         uint256 cpuPrice,
         uint256 memoryPrice,
-        uint256 storagePrice
+        uint256 storagePrice,
+        uint256 gpuPrice
     );
     event ResourceRented(
         uint256 indexed rentalId,
@@ -62,12 +68,14 @@ contract SubnetRental {
      * @param cpuPrice Rental price per second for CPU
      * @param memoryPrice Rental price per second for memory
      * @param storagePrice Rental price per second for storage
+     * @param gpuPrice Rental price per second for GPU
      */
     function setPrice(
         uint256 subnetId,
         uint256 cpuPrice,
         uint256 memoryPrice,
-        uint256 storagePrice
+        uint256 storagePrice,
+        uint256 gpuPrice
     ) external {
         // Retrieve subnet information from SubnetRegistry
         ISubnetRegistry.Subnet memory subnet = registry.subnets(subnetId);
@@ -84,18 +92,20 @@ contract SubnetRental {
         subnetPrices[subnetId] = ResourcePrice({
             cpuPrice: cpuPrice,
             memoryPrice: memoryPrice,
-            storagePrice: storagePrice
+            storagePrice: storagePrice,
+            gpuPrice: gpuPrice
         });
 
-        emit PriceSet(subnetId, cpuPrice, memoryPrice, storagePrice);
+        emit PriceSet(subnetId, cpuPrice, memoryPrice, storagePrice, gpuPrice);
     }
 
     /**
-     * @dev Allows users to rent resources from a subnet.
+     * @dev Allows users to rent specific resources from a subnet.
      * @param subnetId ID of the subnet to rent
-     * @param cpu Number of CPUs requested
-     * @param memoryAmount Amount of memory (in MB) requested
-     * @param storageCapacity Amount of storage (in GB) requested
+     * @param cpu Number of CPUs requested (set to 0 if not renting CPU)
+     * @param memoryAmount Amount of memory (in MB) requested (set to 0 if not renting memory)
+     * @param storageCapacity Amount of storage (in GB) requested (set to 0 if not renting storage)
+     * @param gpu Number of GPUs requested (set to 0 if not renting GPUs)
      * @param duration Rental duration (in seconds)
      */
     function rentResource(
@@ -103,6 +113,7 @@ contract SubnetRental {
         uint256 cpu,
         uint256 memoryAmount,
         uint256 storageCapacity,
+        uint256 gpu,
         uint256 duration
     ) external payable {
         // Retrieve subnet information from SubnetRegistry
@@ -112,23 +123,43 @@ contract SubnetRental {
         require(subnet.active, "Subnet is not active");
 
         require(
-            subnetPrices[subnetId].cpuPrice > 0,
+            subnetPrices[subnetId].cpuPrice > 0 ||
+                subnetPrices[subnetId].memoryPrice > 0 ||
+                subnetPrices[subnetId].storagePrice > 0 ||
+                subnetPrices[subnetId].gpuPrice > 0,
             "Subnet is not available for rent"
         );
+
         require(
-            cpu > 0 && memoryAmount > 0 && storageCapacity > 0,
-            "Resource amounts must be greater than zero"
+            cpu > 0 || memoryAmount > 0 || storageCapacity > 0 || gpu > 0,
+            "At least one resource must be rented"
         );
         require(duration > 0, "Duration must be greater than zero");
 
         ResourcePrice memory prices = subnetPrices[subnetId];
 
-        uint256 totalCost = (prices.cpuPrice *
-            cpu +
-            prices.memoryPrice *
-            memoryAmount +
-            prices.storagePrice *
-            memoryAmount) * duration;
+        uint256 totalCost = 0;
+
+        if (cpu > 0) {
+            require(prices.cpuPrice > 0, "CPU resource not available");
+            totalCost += prices.cpuPrice * cpu * duration;
+        }
+
+        if (memoryAmount > 0) {
+            require(prices.memoryPrice > 0, "Memory resource not available");
+            totalCost += prices.memoryPrice * memoryAmount * duration;
+        }
+
+        if (storageCapacity > 0) {
+            require(prices.storagePrice > 0, "Storage resource not available");
+            totalCost += prices.storagePrice * storageCapacity * duration;
+        }
+
+        if (gpu > 0) {
+            require(prices.gpuPrice > 0, "GPU resource not available");
+            totalCost += prices.gpuPrice * gpu * duration;
+        }
+
         require(msg.value >= totalCost, "Insufficient payment");
 
         rentalCounter++;
@@ -138,8 +169,19 @@ contract SubnetRental {
             startTime: block.timestamp,
             endTime: block.timestamp + duration,
             totalCost: totalCost,
+            cpu: cpu,
+            memoryAmount: memoryAmount,
+            storageCapacity: storageCapacity,
+            gpu: gpu,
             active: true
         });
+
+        // Refund excess payment if any
+        if (msg.value > totalCost) {
+            uint256 refundAmount = msg.value - totalCost;
+            (bool success, ) = msg.sender.call{value: refundAmount}("");
+            require(success, "Refund failed");
+        }
 
         emit ResourceRented(rentalCounter, subnetId, msg.sender, totalCost);
     }
@@ -169,11 +211,18 @@ contract SubnetRental {
         );
         require(subnet.active, "Subnet is not active");
 
-        // Calculate the additional cost
+        // Retrieve pricing
         ResourcePrice memory prices = subnetPrices[rental.subnetId];
-        uint256 additionalCost = (prices.cpuPrice +
-            prices.memoryPrice +
-            prices.storagePrice) * additionalDuration;
+
+        // Calculate the additional cost
+        uint256 additionalCost = (prices.cpuPrice *
+            rental.cpu +
+            prices.memoryPrice *
+            rental.memoryAmount +
+            prices.storagePrice *
+            rental.storageCapacity +
+            prices.gpuPrice *
+            rental.gpu) * additionalDuration;
 
         // Check payment
         require(
@@ -184,6 +233,13 @@ contract SubnetRental {
         // Update the rental end time and total cost
         rental.endTime += additionalDuration;
         rental.totalCost += additionalCost;
+
+        // Refund excess payment if any
+        if (msg.value > additionalCost) {
+            uint256 refundAmount = msg.value - additionalCost;
+            (bool success, ) = msg.sender.call{value: refundAmount}("");
+            require(success, "Refund failed");
+        }
 
         emit ResourceRented(
             rentalId,
@@ -214,6 +270,48 @@ contract SubnetRental {
         // Transfer payment to the subnet owner
         (bool success, ) = subnet.owner.call{value: rental.totalCost}("");
         require(success, "Payment to subnet owner failed");
+
+        emit RentalCompleted(rentalId, rental.subnetId);
+    }
+
+    /**
+     * @dev Allows renters to cancel an active rental and get a refund for the unused time.
+     * @param rentalId ID of the rental transaction to cancel
+     */
+    function cancelRental(uint256 rentalId) external {
+        Rental storage rental = rentals[rentalId];
+
+        // Ensure the rental is active
+        require(rental.active, "Rental is not active");
+
+        // Ensure the caller is the renter
+        require(rental.renter == msg.sender, "Caller is not the renter");
+
+        // Calculate the elapsed time and the remaining time
+        uint256 elapsedTime = block.timestamp > rental.startTime
+            ? block.timestamp - rental.startTime
+            : 0;
+        uint256 totalDuration = rental.endTime - rental.startTime;
+
+        // Ensure the total duration is valid
+        require(totalDuration > 0, "Invalid rental duration");
+
+        // Calculate the unused time
+        uint256 unusedTime = totalDuration > elapsedTime
+            ? totalDuration - elapsedTime
+            : 0;
+
+        // Calculate the refund amount
+        uint256 refundAmount = (rental.totalCost * unusedTime) / totalDuration;
+
+        // Mark the rental as inactive
+        rental.active = false;
+
+        // Refund the unused amount
+        if (refundAmount > 0) {
+            (bool success, ) = msg.sender.call{value: refundAmount}("");
+            require(success, "Refund failed");
+        }
 
         emit RentalCompleted(rentalId, rental.subnetId);
     }
