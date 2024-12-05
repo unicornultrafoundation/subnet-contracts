@@ -229,6 +229,12 @@ contract SubnetAppRegistry is EIP712, Ownable {
         // Generate the EIP-712 typed data hash
         bytes32 structHash = _hashTypedDataV4(_hashUpdateUsageData(data));
         
+        // Check if the hash has already been used
+        require(!usedMessageHashes[structHash], "Replay attack detected: hash already used");
+
+         // Mark the hash as used
+        usedMessageHashes[structHash] = true;
+        
         // Recover the address of the signer (App Owner) from the provided signature
         address signer = ECDSA.recover(structHash, signature);
         require(signer == app.owner, "Invalid app owner signature");
