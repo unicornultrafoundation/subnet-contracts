@@ -122,11 +122,30 @@ contract SubnetAppRegistry is EIP712, Ownable {
     }
 
     /**
-     * @dev Create a new application.
-     */
+    * @dev Creates a new application with specified resource requirements and payment configurations.
+    * The application is registered under the caller's ownership.
+    *
+    * @param name The name of the application.
+    * @param symbol A unique symbol representing the application.
+    * @param peerId A unique identifier for the application's network peer.
+    * @param budget The total budget allocated for the application (must be sent in wei).
+    * @param maxNodes The maximum number of nodes that can participate in the application.
+    * @param minCpu The minimum CPU requirement for participating nodes.
+    * @param minGpu The minimum GPU requirement for participating nodes.
+    * @param minMemory The minimum memory requirement (in GB) for participating nodes.
+    * @param minUploadBandwidth The minimum upload bandwidth requirement (in Mbps) for participating nodes.
+    * @param minDownloadBandwidth The minimum download bandwidth requirement (in Mbps) for participating nodes.
+    * @param pricePerCpu The payment per unit of CPU used.
+    * @param pricePerGpu The payment per unit of GPU used.
+    * @param pricePerMemoryGB The payment per GB of memory used.
+    * @param pricePerStorageGB The payment per GB of storage used.
+    * @param pricePerBandwidthGB The payment per GB of bandwidth used.
+    * @param paymentMethod The payment method (DURATION or PAY_AS_YOU_USE).
+    */
     function createApp(
         string memory name,
         string memory symbol,
+        string memory peerId,
         uint256 budget,
         uint256 maxNodes,
         uint256 minCpu,
@@ -148,6 +167,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         appCount++;
 
         App storage app = apps[appCount];
+        app.peerId = peerId;
         app.owner = msg.sender;
         app.name = name;
         app.symbol = symbol;
