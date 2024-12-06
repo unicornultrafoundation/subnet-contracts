@@ -383,5 +383,95 @@ describe("SubnetAppRegistry", function () {
             expect(finalTreasuryBalance - initialTreasuryBalance).to.equal(fee);
             expect(finalNodeBalance - initialNodeBalance).to.be.closeTo(netReward, ethers.parseEther("0.001")); // Allow slight gas variation
         })
+
+        it("should revert if the signature is invalid", async function () {
+            const subnetId = 1;
+            const appId = 1;
+    
+            // Invalid signature
+            const invalidSignature = "0x2e101a65cd0b9df75ea01c2ae41a32c6069ad5577aa1d5ddefd57521bc533ee1162f63b2ebad37b9a11899f1dcb0fd734793ecccd901b791f303a60db4a65a3a1b";
+    
+            // Attempt to claim reward
+            await expect(
+                subnetAppRegistry.claimReward(
+                    subnetId,
+                    appId,
+                    10, 5, 10, 20, 1e9, 2e9, 3600, invalidSignature
+                )
+            ).to.be.revertedWith("Invalid app owner signature");
+        });
+
+        it("should revert if the hash is already used", async function () {
+            const subnetId = 1;
+            const appId = 1;
+    
+            // Simulate usage data and generate signature
+            const usageData = {
+                subnetId: subnetId,
+                appId: appId,
+                usedCpu: 10,
+                usedGpu: 5,
+                usedMemory: 10,
+                usedStorage: 20,
+                usedUploadBytes: 1e9,
+                usedDownloadBytes: 2e9,
+                duration: 3600
+            };
+    
+            const domain = {
+                name: "SubnetAppRegistry",
+                version: "1",
+                chainId: (await ethers.provider.getNetwork()).chainId,
+                verifyingContract: await subnetAppRegistry.getAddress()
+            };
+    
+            const types = {
+                Usage: [
+                    { name: "subnetId", type: "uint256" },
+                    { name: "appId", type: "uint256" },
+                    { name: "usedCpu", type: "uint256" },
+                    { name: "usedGpu", type: "uint256" },
+                    { name: "usedMemory", type: "uint256" },
+                    { name: "usedStorage", type: "uint256" },
+                    { name: "usedUploadBytes", type: "uint256" },
+                    { name: "usedDownloadBytes", type: "uint256" },
+                    { name: "duration", type: "uint256" }
+                ]
+            };
+    
+            const signature = await owner.signTypedData(domain, types, usageData);
+    
+            // First claim
+            await subnetAppRegistry.claimReward(
+                usageData.subnetId,
+                usageData.appId,
+                usageData.usedCpu,
+                usageData.usedGpu,
+                usageData.usedMemory,
+                usageData.usedStorage,
+                usageData.usedUploadBytes,
+                usageData.usedDownloadBytes,
+                usageData.duration,
+                signature
+            );
+    
+            // Attempt to claim again with the same hash
+            await expect(
+                subnetAppRegistry.claimReward(
+                    usageData.subnetId,
+                    usageData.appId,
+                    usageData.usedCpu,
+                    usageData.usedGpu,
+                    usageData.usedMemory,
+                    usageData.usedStorage,
+                    usageData.usedUploadBytes,
+                    usageData.usedDownloadBytes,
+                    usageData.duration,
+                    signature
+                )
+            ).to.be.revertedWith("Replay attack detected: hash already used");
+        });
     })
+    
+    
 });

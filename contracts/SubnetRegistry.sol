@@ -162,17 +162,15 @@ contract SubnetRegistry is Ownable {
     /**
      * @dev Claim rewards for uptime using a Merkle proof.
      * @param subnetId ID of the subnet
-     * @param owner Address of the subnet owner
      * @param totalUptime Total uptime (in seconds) from Merkle tree
      * @param proof Merkle proof to validate the claim
      */
-    function claimReward(uint256 subnetId, address owner, uint256 totalUptime, bytes32[] calldata proof) external {
+    function claimReward(uint256 subnetId, uint256 totalUptime, bytes32[] calldata proof) external {
         Subnet storage subnet = subnets[subnetId];
-        require(subnet.owner == owner, "Caller is not the subnet owner");
         require(totalUptime > subnet.claimedUptime, "No new uptime to claim");
 
         // Validate Merkle proof
-        bytes32 leaf = keccak256(abi.encodePacked(subnetId, owner, totalUptime));
+        bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(subnetId, totalUptime))));
         require(MerkleProof.verify(proof, merkleRoot, leaf), "Invalid Merkle proof");
 
         uint256 newUptime = totalUptime - subnet.claimedUptime;
@@ -181,10 +179,10 @@ contract SubnetRegistry is Ownable {
 
         // Update claimed uptime and transfer reward
         subnet.claimedUptime = totalUptime;
-        (bool success, ) = owner.call{value: reward}("");
+        (bool success, ) = subnet.owner.call{value: reward}("");
         require(success, "Reward transfer failed");
 
-        emit RewardClaimed(subnetId, owner, subnet.peerAddr, reward);
+        emit RewardClaimed(subnetId, subnet.owner, subnet.peerAddr, reward);
     }
 
    /**
