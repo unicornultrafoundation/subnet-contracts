@@ -24,16 +24,21 @@ contract SubnetRegistry is Ownable {
         uint256 totalUptime;
         uint256 claimedUptime;
         bool active;
+        uint256 trustScores;
     }
 
     mapping(uint256 => Subnet) public subnets; // Mapping from subnet ID to subnet data
     mapping(string => uint256) public peerToSubnet; // Mapping from peer address to subnet ID
+    // Default trust score
+    uint256 public constant DEFAULT_TRUST_SCORE = 100000;
 
     // Events
     event SubnetRegistered(uint256 indexed subnetId, address indexed owner, uint256 nftId, string peerAddr, string metadata);
     event SubnetDeregistered(uint256 indexed subnetId, address indexed owner, string peerAddr, uint256 uptime);
     event RewardClaimed(uint256 indexed subnetId, address indexed owner, string peerAddr, uint256 amount);
     event RewardPerSecondUpdated(uint256 oldRewardPerSecond, uint256 newRewardPerSecond);
+    // Event for trust score updates
+    event TrustScoreUpdated(uint256 indexed subnetId, uint256 newScore);
 
     /**
      * @dev Constructor to set immutable variables.
@@ -89,7 +94,8 @@ contract SubnetRegistry is Ownable {
             startTime: block.timestamp,
             totalUptime: 0,
             claimedUptime: 0,
-            active: true
+            active: true,
+            trustScores: DEFAULT_TRUST_SCORE
         });
 
         peerToSubnet[peerAddr] = subnetCounter;
@@ -140,6 +146,20 @@ contract SubnetRegistry is Ownable {
         require(success, "Reward transfer failed");
 
         emit RewardClaimed(subnetId, owner, subnet.peerAddr, reward);
+    }
+
+    function increaseTrustScore(uint256 subnetId, uint256 points) external onlyOwner {
+        Subnet storage subnet = subnets[subnetId];
+        require(subnet.owner != address(0), "");
+        subnet.trustScores += points;
+        emit TrustScoreUpdated(subnetId,  subnet.trustScores);
+    }
+
+    function decreaseTrustScore(uint256 subnetId, uint256 points) external onlyOwner {
+        Subnet storage subnet = subnets[subnetId];
+        require(subnet.owner != address(0), "");
+        subnet.trustScores -= subnet.trustScores > points ? points: 0;
+        emit TrustScoreUpdated(subnetId,  subnet.trustScores);
     }
 
     /**

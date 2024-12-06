@@ -83,6 +83,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
     // Events
     event AppCreated(uint256 indexed appId, string name, string symbol, address indexed owner, uint256 budget);
     event RewardClaimed(uint256 indexed appId, uint256 indexed subnetId, address indexed node, uint256 reward);
+    event NodeRegistered(uint256 indexed subnetId, uint256 indexed appId, address indexed owner);
 
     /**
      * @dev Constructor for initializing the contract.
@@ -189,6 +190,40 @@ contract SubnetAppRegistry is EIP712, Ownable {
 
         emit AppCreated(appCount, name, symbol, msg.sender, budget);
     }
+
+    /**
+    * @dev Registers a node to a specific application.
+    * Ensures the node meets the application's resource requirements and doesn't exceed the maximum node limit.
+    *
+    * @param subnetId The ID of the subnet where the node is registered.
+    * @param appId The ID of the application the node wants to register for.
+    */
+    function registerNode(uint256 subnetId, uint256 appId) external {
+        // Validate application ID
+        require(appId > 0 && appId <= appCount, "Invalid App ID");
+
+        // Fetch the application
+        App storage app = apps[appId];
+
+        // Ensure the node does not exceed the maximum node count
+        require(app.nodeCount < app.maxNodes, "App has reached maximum node limit");
+
+        // Fetch the subnet details from the SubnetRegistry
+        ISubnetRegistry.Subnet memory subnet = subnetRegistry.subnets(subnetId);
+
+        // Validate the subnet is active
+        require(subnet.active, "Subnet is inactive");
+
+        // Register the node to the app
+        nodeToAppId[subnetId] = appId;
+
+        // Increment the app's node count
+        app.nodeCount++;
+
+        // Emit the NodeRegistered event
+        emit NodeRegistered(subnetId, appId, subnet.owner);
+    }
+
 
    /**
     * @dev Claims a reward for node resources based on usage data.
@@ -372,20 +407,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         );
     }
 
-    /**
-     * @dev Overrides the domain separator function for EIP-712.
-     */
-    function _domainSeparatorV4() internal view override returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                keccak256(
-                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-                ),
-                keccak256(bytes(SIGNING_DOMAIN)),
-                keccak256(bytes(SIGNATURE_VERSION)),
-                block.chainid,
-                address(this)
-            )
-        );
+    function version() public pure returns (string memory) {
+        return "1.0.0";
     }
 }

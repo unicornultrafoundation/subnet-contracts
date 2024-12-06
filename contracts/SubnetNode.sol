@@ -468,20 +468,4 @@ contract SubnetNode is Ownable, EIP712 {
                 )
             );
     }
-
-    // Override _domainSeparatorV4 to use the custom domain
-    function _domainSeparatorV4() internal view override returns (bytes32) {
-        return
-            keccak256(
-                abi.encode(
-                    keccak256(
-                        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-                    ),
-                    keccak256(bytes(SIGNING_DOMAIN)),
-                    keccak256(bytes(SIGNATURE_VERSION)),
-                    block.chainid,
-                    address(this)
-                )
-            );
-    }
 }
