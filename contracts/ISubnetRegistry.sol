@@ -18,5 +18,5 @@ interface ISubnetRegistry {
      * @param subnetId ID of the subnet.
      * @return Subnet The structure containing subnet information.
      */
-    function subnets(uint256 subnetId) external view returns (Subnet memory);
+    function getSubnet(uint256 subnetId) external view returns (Subnet memory);
 }

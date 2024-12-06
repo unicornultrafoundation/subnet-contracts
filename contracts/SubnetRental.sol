@@ -78,7 +78,7 @@ contract SubnetRental {
         uint256 gpuPrice
     ) external {
         // Retrieve subnet information from SubnetRegistry
-        ISubnetRegistry.Subnet memory subnet = registry.subnets(subnetId);
+        ISubnetRegistry.Subnet memory subnet = registry.getSubnet(subnetId);
         require(
             subnet.owner == msg.sender,
             "Caller is not the owner of the subnet"
@@ -117,7 +117,7 @@ contract SubnetRental {
         uint256 duration
     ) external payable {
         // Retrieve subnet information from SubnetRegistry
-        ISubnetRegistry.Subnet memory subnet = registry.subnets(subnetId);
+        ISubnetRegistry.Subnet memory subnet = registry.getSubnet(subnetId);
 
         // Check if the subnet is active
         require(subnet.active, "Subnet is not active");
@@ -206,7 +206,7 @@ contract SubnetRental {
         );
 
         // Retrieve subnet information
-        ISubnetRegistry.Subnet memory subnet = registry.subnets(
+        ISubnetRegistry.Subnet memory subnet = registry.getSubnet(
             rental.subnetId
         );
         require(subnet.active, "Subnet is not active");
@@ -261,7 +261,7 @@ contract SubnetRental {
             "Rental period not yet ended"
         );
 
-        ISubnetRegistry.Subnet memory subnet = registry.subnets(
+        ISubnetRegistry.Subnet memory subnet = registry.getSubnet(
             rental.subnetId
         );
 

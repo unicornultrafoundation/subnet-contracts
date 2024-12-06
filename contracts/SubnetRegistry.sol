@@ -31,6 +31,8 @@ contract SubnetRegistry is Ownable {
     mapping(string => uint256) public peerToSubnet; // Mapping from peer address to subnet ID
     // Default trust score
     uint256 public constant DEFAULT_TRUST_SCORE = 100000;
+    // Mapping to track addresses with permission to update trust scores
+    mapping(address => bool) public scoreUpdaters;
 
     // Events
     event SubnetRegistered(uint256 indexed subnetId, address indexed owner, uint256 nftId, string peerAddr, string metadata);
@@ -39,6 +41,18 @@ contract SubnetRegistry is Ownable {
     event RewardPerSecondUpdated(uint256 oldRewardPerSecond, uint256 newRewardPerSecond);
     // Event for trust score updates
     event TrustScoreUpdated(uint256 indexed subnetId, uint256 newScore);
+    // Event emitted when an address is granted the updater role
+    event ScoreUpdaterAdded(address indexed updater);
+    // Event emitted when an address is revoked from the updater role
+    event ScoreUpdaterRemoved(address indexed updater);
+
+    /**
+    * @dev Modifier to restrict access to authorized score updaters.
+    */
+    modifier onlyScoreUpdater() {
+        require(scoreUpdaters[msg.sender], "Caller is not an authorized updater");
+        _;
+    }
 
     /**
      * @dev Constructor to set immutable variables.
@@ -70,6 +84,31 @@ contract SubnetRegistry is Ownable {
      */
     function updateMerkleRoot(bytes32 _merkleRoot) external onlyOwner {
         merkleRoot = _merkleRoot;
+    }
+
+    /**
+    * @dev Grants the score updater role to an address.
+    * Can only be called by the contract owner.
+    * @param updater The address to be granted the updater role.
+    */
+    function addScoreUpdater(address updater) external onlyOwner {
+        require(updater != address(0), "Invalid address");
+        require(!scoreUpdaters[updater], "Address is already an updater");
+
+        scoreUpdaters[updater] = true;
+        emit ScoreUpdaterAdded(updater);
+    }
+
+    /**
+    * @dev Revokes the score updater role from an address.
+    * Can only be called by the contract owner.
+    * @param updater The address to be revoked.
+    */
+    function removeScoreUpdater(address updater) external onlyOwner {
+        require(scoreUpdaters[updater], "Address is not an updater");
+
+        scoreUpdaters[updater] = false;
+        emit ScoreUpdaterRemoved(updater);
     }
 
     /**
@@ -148,18 +187,44 @@ contract SubnetRegistry is Ownable {
         emit RewardClaimed(subnetId, owner, subnet.peerAddr, reward);
     }
 
-    function increaseTrustScore(uint256 subnetId, uint256 points) external onlyOwner {
+   /**
+    * @dev Increases the trust score of a subnet.
+    * Can only be called by authorized score updaters.
+    * @param subnetId The ID of the subnet.
+    * @param points The number of points to add to the trust score.
+    */
+    function increaseTrustScore(uint256 subnetId, uint256 points) external onlyScoreUpdater {
+        // Fetch the subnet details
         Subnet storage subnet = subnets[subnetId];
-        require(subnet.owner != address(0), "");
+
+        // Ensure the subnet exists
+        require(subnet.owner != address(0), "Subnet does not exist");
+
+        // Increment the trust score
         subnet.trustScores += points;
-        emit TrustScoreUpdated(subnetId,  subnet.trustScores);
+
+        // Emit an event for the updated trust score
+        emit TrustScoreUpdated(subnetId, subnet.trustScores);
     }
 
-    function decreaseTrustScore(uint256 subnetId, uint256 points) external onlyOwner {
+    /**
+    * @dev Decreases the trust score of a subnet.
+    * Can only be called by authorized score updaters.
+    * @param subnetId The ID of the subnet.
+    * @param points The number of points to subtract from the trust score.
+    */
+    function decreaseTrustScore(uint256 subnetId, uint256 points) external onlyScoreUpdater {
+        // Fetch the subnet details
         Subnet storage subnet = subnets[subnetId];
-        require(subnet.owner != address(0), "");
-        subnet.trustScores -= subnet.trustScores > points ? points: 0;
-        emit TrustScoreUpdated(subnetId,  subnet.trustScores);
+
+        // Ensure the subnet exists
+        require(subnet.owner != address(0), "Subnet does not exist");
+
+        // Decrease the trust score, ensuring it doesn't underflow
+        subnet.trustScores = subnet.trustScores > points ? subnet.trustScores - points : 0;
+
+        // Emit an event for the updated trust score
+        emit TrustScoreUpdated(subnetId, subnet.trustScores);
     }
 
     /**
@@ -167,5 +232,19 @@ contract SubnetRegistry is Ownable {
      */
     function deposit() external payable {
         require(msg.value > 0, "Must deposit tokens");
+    }
+
+    /**
+     * @dev Retrieves the details of a specific subnet.
+     */
+    function getSubnet(uint256 subnetId) external view returns (Subnet memory) {
+        // Fetch the subnet from the mapping
+        Subnet memory subnet = subnets[subnetId];
+
+        // Ensure the subnet exists
+        require(subnet.owner != address(0), "Subnet does not exist");
+
+        // Return the subnet details
+        return subnet;
     }
 }

@@ -54,6 +54,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         uint256 usedStorage;
         uint256 usedDownloadBytes;
         uint256 usedUploadBytes;
+        bool isRegistered;
     }
 
     // Struct representing resource usage for a claim
@@ -209,13 +210,13 @@ contract SubnetAppRegistry is EIP712, Ownable {
         require(app.nodeCount < app.maxNodes, "App has reached maximum node limit");
 
         // Fetch the subnet details from the SubnetRegistry
-        ISubnetRegistry.Subnet memory subnet = subnetRegistry.subnets(subnetId);
+        ISubnetRegistry.Subnet memory subnet = subnetRegistry.getSubnet(subnetId);
 
         // Validate the subnet is active
         require(subnet.active, "Subnet is inactive");
 
         // Register the node to the app
-        nodeToAppId[subnetId] = appId;
+        appNodes[appId][subnetId].isRegistered = true;
 
         // Increment the app's node count
         app.nodeCount++;
@@ -261,12 +262,12 @@ contract SubnetAppRegistry is EIP712, Ownable {
         require(app.budget > app.spentBudget, "App budget exhausted");
 
         // Retrieve subnet details from the Subnet Registry
-        ISubnetRegistry.Subnet memory subnet = subnetRegistry.subnets(subnetId);
+        ISubnetRegistry.Subnet memory subnet = subnetRegistry.getSubnet(subnetId);
         require(subnet.active, "Node in SubnetRegistry is inactive");
         require(subnet.owner == msg.sender, "Unauthorized node");
 
         // Validate that the node is registered with the application
-        require(nodeToAppId[subnetId] == appId, "Node not registered with this app");
+        require(appNodes[appId][subnetId].isRegistered, "Node not registered with this app");
 
         // Create a `Usage` struct containing the reported resource usage
         Usage memory data = Usage({
@@ -405,6 +406,36 @@ contract SubnetAppRegistry is EIP712, Ownable {
                 data.duration
             )
         );
+    }
+
+    /**
+    * @dev Retrieves the details of a specific application.
+    * @param appId The ID of the application to fetch details for.
+    * @return app The App struct containing all the application details.
+    */
+    function getApp(uint256 appId) external view returns (App memory app) {
+        // Ensure the app exists
+        require(apps[appId].owner != address(0), "App does not exist");
+
+        // Return the App struct
+        return apps[appId];
+    }
+
+    /**
+    * @dev Retrieves the usage details of a node for a specific application.
+    * @param appId The ID of the application.
+    * @param subnetId The ID of the subnet (node) to fetch details for.
+    * @return appNode The AppNode struct containing the node's usage details.
+    */
+    function getAppNode(uint256 appId, uint256 subnetId) external view returns (AppNode memory appNode) {
+        // Ensure the application exists
+        require(apps[appId].owner != address(0), "App does not exist");
+
+        // Ensure the node is registered to the app
+        require(appNodes[appId][subnetId].isRegistered, "Node not registered to this app");
+
+        // Return the AppNode struct
+        return appNodes[appId][subnetId];
     }
 
     function version() public pure returns (string memory) {
