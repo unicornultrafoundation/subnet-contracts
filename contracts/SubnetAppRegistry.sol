@@ -81,6 +81,13 @@ contract SubnetAppRegistry is EIP712, Ownable {
     event NodeRegistered(uint256 indexed subnetId, uint256 indexed appId, address indexed owner);
 
     /**
+    * @dev Emitted when an application is updated.
+    */
+    event AppUpdated(
+        uint256 appId
+    );
+
+    /**
      * @dev Constructor for initializing the contract.
      * @param _subnetRegistry Address of the Subnet Registry.
      * @param initialOwner Address of the initial owner of the contract.
@@ -116,6 +123,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         require(_feeRate <= 1000, "Fee rate must be <= 1000 (100%)");
         feeRate = _feeRate;
     }
+    
 
     /**
     * @dev Creates a new application with specified resource requirements and payment configurations.
@@ -184,6 +192,69 @@ contract SubnetAppRegistry is EIP712, Ownable {
         symbolToAppId[symbol] = appCount;
 
         emit AppCreated(appCount, name, symbol, msg.sender, budget);
+    }
+
+    /**
+    * @dev Updates an existing application with new resource requirements and payment configurations.
+    * Only the owner of the application can perform the update.
+    *
+    * @param appId The ID of the application to update.
+    * @param name The new name of the application.
+    * @param peerId The new unique identifier for the application's network peer.
+    * @param maxNodes The new maximum number of nodes that can participate in the application.
+    * @param minCpu The new minimum CPU requirement for participating nodes.
+    * @param minGpu The new minimum GPU requirement for participating nodes.
+    * @param minMemory The new minimum memory requirement (in GB) for participating nodes.
+    * @param minUploadBandwidth The new minimum upload bandwidth requirement (in Mbps) for participating nodes.
+    * @param minDownloadBandwidth The new minimum download bandwidth requirement (in Mbps) for participating nodes.
+    * @param pricePerCpu The new payment per unit of CPU used.
+    * @param pricePerGpu The new payment per unit of GPU used.
+    * @param pricePerMemoryGB The new payment per GB of memory used.
+    * @param pricePerStorageGB The new payment per GB of storage used.
+    * @param pricePerBandwidthGB The new payment per GB of bandwidth used.
+    * @param metadata The new metadata.
+    */
+    function updateApp(
+        uint256 appId,
+        string memory name,
+        string memory peerId,
+        uint256 maxNodes,
+        uint256 minCpu,
+        uint256 minGpu,
+        uint256 minMemory,
+        uint256 minUploadBandwidth,
+        uint256 minDownloadBandwidth,
+        uint256 pricePerCpu,
+        uint256 pricePerGpu,
+        uint256 pricePerMemoryGB,
+        uint256 pricePerStorageGB,
+        uint256 pricePerBandwidthGB,
+        string memory metadata
+    ) public {
+        App storage app = apps[appId];
+
+        require(app.owner == msg.sender, "Only the owner can update the application");
+        require(appId > 0 && appId <= appCount, "Application ID is invalid");
+        require(maxNodes > 0, "Max nodes must be greater than zero");
+
+        app.name = name;
+        app.peerId = peerId;
+        app.maxNodes = maxNodes;
+        app.minCpu = minCpu;
+        app.minGpu = minGpu;
+        app.minMemory = minMemory;
+        app.minUploadBandwidth = minUploadBandwidth;
+        app.minDownloadBandwidth = minDownloadBandwidth;
+        app.pricePerCpu = pricePerCpu;
+        app.pricePerGpu = pricePerGpu;
+        app.pricePerMemoryGB = pricePerMemoryGB;
+        app.pricePerStorageGB = pricePerStorageGB;
+        app.pricePerBandwidthGB = pricePerBandwidthGB;
+        app.metadata = metadata;
+
+        emit AppUpdated(
+            appId
+        );
     }
 
     /**
