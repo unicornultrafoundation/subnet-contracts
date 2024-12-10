@@ -3,14 +3,16 @@ pragma solidity ^0.8.0;
 
 interface ISubnetRegistry {
     struct Subnet {
-        uint256 nftId; // NFT ID associated with the subnet
-        address owner; // Address of the subnet owner
-        string peerAddr; // Peer address of the subnet
-        string metadata; // Metadata describing the subnet
-        uint256 startTime; // Start time of the subnet's activity
-        uint256 totalUptime; // Total uptime of the subnet
-        uint256 claimedUptime; // Uptime claimed by the owner
-        bool active; // Status of the subnet (active/inactive)
+        string name;
+        uint256 nftId;
+        address owner;
+        string peerAddr;
+        string metadata;
+        uint256 startTime;
+        uint256 totalUptime;
+        uint256 claimedUptime;
+        bool active;
+        uint256 trustScores;
     }
 
     /**

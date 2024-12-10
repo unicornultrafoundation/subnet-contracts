@@ -16,6 +16,7 @@ contract SubnetRegistry is Ownable {
     bytes32 public merkleRoot; // Merkle root for uptime validation
 
     struct Subnet {
+        string name;
         uint256 nftId;
         address owner;
         string peerAddr;
@@ -117,7 +118,7 @@ contract SubnetRegistry is Ownable {
      * @param peerAddr Peer address (e.g., PeerID or multiaddress)
      * @param metadata Metadata for the subnet
      */
-    function registerSubnet(uint256 nftId, string memory peerAddr, string memory metadata) external {
+    function registerSubnet(uint256 nftId, string memory peerAddr, string memory name, string memory metadata) external {
         require(peerToSubnet[peerAddr] == 0, "Peer address already registered");
         require(IERC721(nftContract).ownerOf(nftId) == msg.sender, "Caller is not the NFT owner");
 
@@ -126,10 +127,11 @@ contract SubnetRegistry is Ownable {
 
         subnetCounter++;
         subnets[subnetCounter] = Subnet({
+            name: name,
+            metadata: metadata,
             nftId: nftId,
             owner: msg.sender,
             peerAddr: peerAddr,
-            metadata: metadata,
             startTime: block.timestamp,
             totalUptime: 0,
             claimedUptime: 0,

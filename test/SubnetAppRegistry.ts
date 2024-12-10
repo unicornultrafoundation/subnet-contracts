@@ -27,7 +27,7 @@ describe("SubnetAppRegistry", function () {
         );
 
         await testNFT.approve(await subnetRegistry.getAddress(), 1)
-        await subnetRegistry.registerSubnet(1, "0x", "")
+        await subnetRegistry.registerSubnet(1, "0x", "NAME", "metadata")
 
 
         // Deploy SubnetAppRegistry Contract
@@ -66,7 +66,7 @@ describe("SubnetAppRegistry", function () {
             1, // pricePerMemoryGB
             1, // pricePerStorageGB
             1, // pricePerBandwidthGB
-            0, // PaymentMethod.DURATION
+            "metadata",
             { value: appBudget }
         );
 
@@ -90,7 +90,7 @@ describe("SubnetAppRegistry", function () {
             "peer1",
             ethers.parseEther("5"),
             5,
-            2, 1, 4, 10, 20, 1, 1, 1, 1, 1, 0,
+            2, 1, 4, 10, 20, 1, 1, 1, 1, 1,  "metadata",
             { value: ethers.parseEther("5") }
         );
 
@@ -102,7 +102,7 @@ describe("SubnetAppRegistry", function () {
                 "peer2",
                 ethers.parseEther("5"),
                 5,
-                2, 1, 4, 10, 20, 1, 1, 1, 1, 1, 0,
+                2, 1, 4, 10, 20, 1, 1, 1, 1, 1,  "metadata",
                 { value: ethers.parseEther("5") }
             )
         ).to.be.revertedWith("Symbol already exists");
@@ -121,7 +121,7 @@ describe("SubnetAppRegistry", function () {
                 "peerEmit",
                 appBudget,
                 5,
-                2, 1, 4, 10, 20, 1, 1, 1, 1, 1, 0,
+                2, 1, 4, 10, 20, 1, 1, 1, 1, 1,  "metadata",
                 { value: appBudget }
             )
         )
@@ -186,7 +186,7 @@ describe("SubnetAppRegistry", function () {
             1, // pricePerMemoryGB
             1, // pricePerStorageGB
             1, // pricePerBandwidthGB
-            0, // PaymentMethod.DURATION
+            "metadata", // PaymentMethod.DURATION
             { value: appBudget }
         );
 
@@ -227,7 +227,7 @@ describe("SubnetAppRegistry", function () {
             1, // pricePerMemoryGB
             1, // pricePerStorageGB
             1, // pricePerBandwidthGB
-            0, // PaymentMethod.DURATION
+            "metadata", // PaymentMethod.DURATION
             { value: appBudget }
         );
 
@@ -261,7 +261,7 @@ describe("SubnetAppRegistry", function () {
             1, // pricePerMemoryGB
             1, // pricePerStorageGB
             1, // pricePerBandwidthGB
-            0, // PaymentMethod.DURATION
+            "metadata", // PaymentMethod.DURATION
             { value: appBudget }
         );
 
@@ -298,7 +298,7 @@ describe("SubnetAppRegistry", function () {
                 1, // pricePerMemoryGB
                 1, // pricePerStorageGB
                 1, // pricePerBandwidthGB
-                0, // PaymentMethod.DURATION
+                "metadata", // PaymentMethod.DURATION
                 { value: appBudget }
             );
 
@@ -315,18 +315,16 @@ describe("SubnetAppRegistry", function () {
                 appId: appId,
                 usedCpu: 10,
                 usedGpu: 5,
-                usedMemory: 10,
-                usedStorage: 20,
+                usedMemory: 10 * 1e9,
+                usedStorage: 20 * 1e9,
                 usedUploadBytes: 1e9, // 1 GB
                 usedDownloadBytes: 2e9, // 2 GB
                 duration: 3600 // 1 hour
             };
-
             const bandwidth = (usageData.usedDownloadBytes + usageData.usedUploadBytes)/1e9
             const reward = BigInt((usageData.usedCpu + usageData.usedGpu +
-                usageData.usedMemory + usageData.usedStorage +
-                bandwidth) * usageData.duration);
-
+               ( usageData.usedMemory / 1e9 * usageData.duration) + (usageData.usedStorage /1e9 * usageData.duration) +
+                bandwidth));
             // Generate EIP-712 signature
             const domain = {
                 name: "SubnetAppRegistry",
@@ -469,7 +467,7 @@ describe("SubnetAppRegistry", function () {
                     usageData.duration,
                     signature
                 )
-            ).to.be.revertedWith("Replay attack detected: hash already used");
+            ).to.be.revertedWith("Replay attack detected");
         });
     })
     

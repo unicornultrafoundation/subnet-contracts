@@ -16,12 +16,6 @@ contract SubnetAppRegistry is EIP712, Ownable {
     string private constant SIGNING_DOMAIN = "SubnetAppRegistry";
     string private constant SIGNATURE_VERSION = "1";
 
-    // Enum for payment methods
-    enum PaymentMethod {
-        DURATION,          // Payment based on duration
-        PAY_AS_YOU_USE     // Payment based on actual resource usage
-    }
-
     // Struct representing an application
     struct App {
         string peerId;
@@ -42,7 +36,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         uint256 pricePerMemoryGB;     // Price per GB of memory
         uint256 pricePerStorageGB;    // Price per GB of storage
         uint256 pricePerBandwidthGB;  // Price per GB of bandwidth
-        PaymentMethod paymentMethod;  // Payment method
+        string metadata;               // Metadata
     }
 
     // Struct for tracking node-specific resource usage
@@ -142,7 +136,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
     * @param pricePerMemoryGB The payment per GB of memory used.
     * @param pricePerStorageGB The payment per GB of storage used.
     * @param pricePerBandwidthGB The payment per GB of bandwidth used.
-    * @param paymentMethod The payment method (DURATION or PAY_AS_YOU_USE).
+    * @param metadata Metadata
     */
     function createApp(
         string memory name,
@@ -160,7 +154,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         uint256 pricePerMemoryGB,
         uint256 pricePerStorageGB,
         uint256 pricePerBandwidthGB,
-        PaymentMethod paymentMethod
+        string memory metadata
     ) public payable {
         require(msg.value >= budget, "Insufficient funds for the job");
         require(maxNodes > 0, "Max nodes must be greater than zero");
@@ -185,7 +179,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         app.pricePerMemoryGB = pricePerMemoryGB;
         app.pricePerStorageGB = pricePerStorageGB;
         app.pricePerBandwidthGB = pricePerBandwidthGB;
-        app.paymentMethod = paymentMethod;
+        app.metadata = metadata;
 
         symbolToAppId[symbol] = appCount;
 
@@ -254,22 +248,18 @@ contract SubnetAppRegistry is EIP712, Ownable {
         uint256 duration,
         bytes memory signature
     ) external {
-        // Validate the application ID
+        // Validate the application ID and other inputs
         require(appId > 0 && appId <= appCount, "Invalid App ID");
         App storage app = apps[appId];
-        
-        // Ensure the application's budget is not exhausted
         require(app.budget > app.spentBudget, "App budget exhausted");
 
-        // Retrieve subnet details from the Subnet Registry
+        // Verify subnet details and node registration
         ISubnetRegistry.Subnet memory subnet = subnetRegistry.getSubnet(subnetId);
-        require(subnet.active, "Node in SubnetRegistry is inactive");
+        require(subnet.active, "Subnet inactive");
         require(subnet.owner == msg.sender, "Unauthorized node");
+        require(appNodes[appId][subnetId].isRegistered, "Node not registered");
 
-        // Validate that the node is registered with the application
-        require(appNodes[appId][subnetId].isRegistered, "Node not registered with this app");
-
-        // Create a `Usage` struct containing the reported resource usage
+        // Hash and verify usage data
         Usage memory data = Usage({
             subnetId: subnetId,
             appId: appId,
@@ -281,79 +271,58 @@ contract SubnetAppRegistry is EIP712, Ownable {
             usedDownloadBytes: usedDownloadBytes,
             duration: duration
         });
-
-        // Generate the EIP-712 typed data hash
         bytes32 structHash = _hashTypedDataV4(_hashUpdateUsageData(data));
-        
-        // Check if the hash has already been used
-        require(!usedMessageHashes[structHash], "Replay attack detected: hash already used");
-
-         // Mark the hash as used
+        require(!usedMessageHashes[structHash], "Replay attack detected");
         usedMessageHashes[structHash] = true;
-        
-        // Recover the address of the signer (App Owner) from the provided signature
+
         address signer = ECDSA.recover(structHash, signature);
         require(signer == app.owner, "Invalid app owner signature");
 
-        // Retrieve the node-specific resource usage data
+        // Retrieve and calculate new usage
         AppNode storage appNode = appNodes[appId][subnetId];
+        uint256 newCpu = usedCpu - appNode.usedCpu;
+        uint256 newGpu = usedGpu - appNode.usedGpu;
+        uint256 newUploadBytes = usedUploadBytes - appNode.usedUploadBytes;
+        uint256 newDownloadBytes = usedDownloadBytes - appNode.usedDownloadBytes;
+        uint256 newDuration = duration - appNode.duration;
 
-        // Calculate the new resource usage (difference between reported and previous usage)
-        uint256 newCpu = usedCpu > appNode.usedCpu ? usedCpu - appNode.usedCpu : 0;
-        uint256 newGpu = usedGpu > appNode.usedGpu ? usedGpu - appNode.usedGpu : 0;
-        uint256 newMemory = usedMemory > appNode.usedMemory ? usedMemory - appNode.usedMemory : 0;
-        uint256 newStorage = usedStorage > appNode.usedStorage ? usedStorage - appNode.usedStorage : 0;
-        uint256 newUploadBytes = usedUploadBytes > appNode.usedUploadBytes ? usedUploadBytes - appNode.usedUploadBytes : 0;
-        uint256 newDownloadBytes = usedDownloadBytes > appNode.usedDownloadBytes ? usedDownloadBytes - appNode.usedDownloadBytes : 0;
-        uint256 newDuration = duration > appNode.duration ? duration - appNode.duration : 0;
-
-        // Update the node's resource usage data
-        appNode.usedCpu += newCpu;
-        appNode.usedGpu += newGpu;
-        appNode.usedMemory += newMemory;
-        appNode.usedStorage += newStorage;
-        appNode.usedUploadBytes += newUploadBytes;
-        appNode.usedDownloadBytes += newDownloadBytes;
+        // Update the node's usage
+        appNode.usedCpu = usedCpu;
+        appNode.usedGpu = usedGpu;
+        appNode.usedMemory = usedMemory; // Memory updates directly
+        appNode.usedStorage = usedStorage; // Storage updates directly
+        appNode.usedUploadBytes = usedUploadBytes;
+        appNode.usedDownloadBytes = usedDownloadBytes;
         appNode.duration += newDuration;
 
-        // Calculate the reward
+        // Calculate reward
         uint256 reward = 0;
 
-        // Reward for bandwidth usage (convert bytes to GB)
-        uint256 newBandwidthGB = (newUploadBytes + newDownloadBytes) / (1e9);
+        // Bandwidth usage (independent of duration)
+        uint256 newBandwidthGB = (newUploadBytes + newDownloadBytes) / 1e9;
         reward += newBandwidthGB * app.pricePerBandwidthGB;
 
-        // Reward for CPU, GPU, memory, and storage usage
+        // CPU and GPU usage (independent of duration)
         reward += newCpu * app.pricePerCpu;
         reward += newGpu * app.pricePerGpu;
-        reward += newMemory * app.pricePerMemoryGB;
-        reward += newStorage * app.pricePerStorageGB;
 
-        // Adjust reward for duration-based payment
-        if (app.paymentMethod == PaymentMethod.DURATION) {
-            reward = newDuration * reward;
-        }
+        // Memory and Storage usage (dependent on duration)
+        reward += usedMemory / 1e9 * duration * app.pricePerMemoryGB;
+        reward += usedStorage/ 1e9 * duration * app.pricePerStorageGB;
 
-        // Ensure the application has enough budget for this reward
-        require(app.budget >= app.spentBudget + reward, "Insufficient budget for reward");
+        // Ensure sufficient budget
+        require(app.budget >= app.spentBudget + reward, "Insufficient budget");
 
-        // Update the application's spent budget
+        // Update budget and transfer rewards
         app.spentBudget += reward;
-
-        // Calculate the fee to be sent to the treasury
         uint256 fee = (reward * feeRate) / 1000;
         uint256 netReward = reward - fee;
 
-        // Transfer the fee to the treasury
         payable(treasury).transfer(fee);
-
-        // Transfer the remaining reward to the node
         payable(msg.sender).transfer(netReward);
 
-        // Emit an event for the reward claim
         emit RewardClaimed(appId, subnetId, msg.sender, reward);
     }
-
 
     /**
     * @dev Fetches a range of applications (apps) from the registry.

@@ -39,7 +39,7 @@ describe("SubnetRegistry Contract", function () {
     await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
 
     await expect(
-      subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "metadata1")
+      subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1")
     )
       .to.emit(subnetRegistry, "SubnetRegistered")
       .withArgs(1, addr1.address, nftId, "peer1", "metadata1");
@@ -53,7 +53,7 @@ describe("SubnetRegistry Contract", function () {
 
   it("Should deregister a subnet", async function () {
     await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
-    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "metadata1");
+    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1","metadata1");
 
     await expect(
       subnetRegistry.connect(addr1).deregisterSubnet(1)
@@ -93,7 +93,7 @@ describe("SubnetRegistry Contract", function () {
 
   it("Should update trust scores", async function () {
     await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
-    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "metadata1");
+    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1");
 
     await subnetRegistry.connect(owner).addScoreUpdater(updater.address);
 
@@ -115,7 +115,7 @@ describe("SubnetRegistry Contract", function () {
 
   it("Should claim rewards", async function () {
     await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
-    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "metadata1");
+    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata");
 
     const tree = StandardMerkleTree.of([
         [1, 100]
