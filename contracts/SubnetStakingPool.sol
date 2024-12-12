@@ -15,6 +15,9 @@ contract SubnetStakingPool is Ownable {
     uint256 public rewardPerTokenStored; // Accumulated reward per token
     uint256 public PRECISION_FACTOR; // The precision factor
 
+    uint256 public startTime; // Staking and rewards start time
+    uint256 public endTime; // Staking and rewards end time
+
     mapping(address => uint256) public userStaked; // Staked amount per user
     mapping(address => uint256) public userRewardPerTokenPaid; // Reward debt per user
     mapping(address => uint256) public userRewards; // Rewards available for withdrawal
@@ -28,12 +31,18 @@ contract SubnetStakingPool is Ownable {
         address initialOwner,
         IERC20Metadata _stakingToken,
         IERC20Metadata _rewardToken,
-        uint256 _rewardRatePerSecond
+        uint256 _rewardRatePerSecond,
+        uint256 _startTime,
+        uint256 _endTime
     ) Ownable(initialOwner) {
+        require(_startTime < _endTime, "Start time must be before end time");
+
         stakingToken = _stakingToken;
         rewardToken = _rewardToken;
         rewardRatePerSecond = _rewardRatePerSecond;
-        lastRewardTime = block.timestamp;
+        startTime = _startTime;
+        endTime = _endTime;
+        lastRewardTime = _startTime;
 
         uint256 decimalsRewardToken = uint256(rewardToken.decimals());
         require(decimalsRewardToken < 30, "Must be inferior to 30");
@@ -53,16 +62,30 @@ contract SubnetStakingPool is Ownable {
         _;
     }
 
+    /// @notice Ensures the function is called within the staking period
+    modifier withinStakingPeriod() {
+        require(block.timestamp >= startTime, "Staking not started yet");
+        require(block.timestamp <= endTime, "Staking period ended");
+        _;
+    }
+
     /// @notice Calculates the reward per token
     /// @return The reward per token scaled by 1e18
     function rewardPerToken() public view returns (uint256) {
-        if (totalStaked == 0) {
+        if (totalStaked == 0 || block.timestamp < startTime) {
             return rewardPerTokenStored;
         }
+
+        uint256 applicableEndTime = block.timestamp > endTime ? endTime : block.timestamp;
+        if (applicableEndTime <= lastRewardTime) {
+            return rewardPerTokenStored;
+        }
+
         return
             rewardPerTokenStored +
-            ((block.timestamp - lastRewardTime) * rewardRatePerSecond * PRECISION_FACTOR) / totalStaked;
+            ((applicableEndTime - lastRewardTime) * rewardRatePerSecond * PRECISION_FACTOR) / totalStaked;
     }
+
 
     /// @notice Calculates the earned rewards for a user
     /// @param account The address of the user
@@ -75,7 +98,7 @@ contract SubnetStakingPool is Ownable {
 
     /// @notice Allows a user to stake tokens
     /// @param amount The amount of tokens to stake
-    function stake(uint256 amount) external updateReward(msg.sender) {
+    function stake(uint256 amount) external withinStakingPeriod updateReward(msg.sender) {
         require(amount > 0, "Cannot stake 0");
         totalStaked += amount;
         userStaked[msg.sender] += amount;
