@@ -19,7 +19,7 @@ describe("SubnetNftVault and SubnetNftVaultFactory", function () {
 
     // Deploy the SubnetNftVaultFactory
     const VaultFactory = await ethers.getContractFactory("SubnetNftVaultFactory");
-    vaultFactory = await VaultFactory.deploy();
+    vaultFactory = await VaultFactory.deploy(await deployer.getAddress());
 
     // Deploy a vault using the factory
     const name = "VaultToken";
@@ -129,5 +129,22 @@ describe("SubnetNftVault and SubnetNftVaultFactory", function () {
 
     const createdVault = await vaultFactory.getVault(0);
     expect(createdVault).to.equal(await vault.getAddress());
+  });
+
+  it("should only allow the owner to create vaults", async function () {
+    const name = "UnauthorizedVault";
+    const symbol = "UVTKN";
+
+    // Attempt to create a vault with a non-owner account
+    await expect(
+      vaultFactory.connect(user).createVault(name, symbol, await nftContract.getAddress())
+    ).to.be.revertedWithCustomError(vaultFactory, "OwnableUnauthorizedAccount");
+
+    // Create a vault with the owner account
+    const tx = await vaultFactory.createVault(name, symbol, await nftContract.getAddress());
+    const receipt = await tx.wait();
+
+    const logs = await vaultFactory.queryFilter(vaultFactory.filters.VaultCreated(), receipt!.blockNumber, receipt!.blockNumber);
+    expect(logs.length).to.equal(1);
   });
 });

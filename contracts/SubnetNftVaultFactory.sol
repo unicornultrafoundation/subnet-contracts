@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./SubnetNftVault.sol";
 
-contract SubnetNftVaultFactory {
+contract SubnetNftVaultFactory is Ownable {
     // Event emitted whenever a new vault is created
     event VaultCreated(address indexed nftContract, address vaultAddress);
 
     // Array to store all deployed vaults
     address[] public allVaults;
+
+    constructor(
+        address initialOwner
+    ) Ownable(initialOwner) { }
 
     /// @notice Computes the salt based on name, symbol, and nftContract
     /// @param name_ The name of the ERC20 token
@@ -61,7 +66,7 @@ contract SubnetNftVaultFactory {
         string memory name_,
         string memory symbol_,
         address nftContract_
-    ) external returns (address) {
+    ) external onlyOwner returns (address) {
         // Compute the salt
         bytes32 salt = computeSalt(name_, symbol_, nftContract_);
 
