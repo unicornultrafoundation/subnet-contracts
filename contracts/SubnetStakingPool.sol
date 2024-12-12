@@ -3,15 +3,17 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 contract SubnetStakingPool is Ownable {
-    IERC20 public immutable stakingToken;
-    IERC20 public immutable rewardToken; // Reward token to be distributed
+    IERC20Metadata public immutable stakingToken;
+    IERC20Metadata public immutable rewardToken; // Reward token to be distributed
 
     uint256 public rewardRatePerSecond; // Reward rate in tokens per second
     uint256 public totalStaked; // Total tokens staked in the pool
     uint256 public lastRewardTime; // Timestamp of the last reward update
     uint256 public rewardPerTokenStored; // Accumulated reward per token
+    uint256 public PRECISION_FACTOR; // The precision factor
 
     mapping(address => uint256) public userStaked; // Staked amount per user
     mapping(address => uint256) public userRewardPerTokenPaid; // Reward debt per user
@@ -24,14 +26,19 @@ contract SubnetStakingPool is Ownable {
 
     constructor(
         address initialOwner,
-        IERC20 _stakingToken,
-        IERC20 _rewardToken,
+        IERC20Metadata _stakingToken,
+        IERC20Metadata _rewardToken,
         uint256 _rewardRatePerSecond
     ) Ownable(initialOwner) {
         stakingToken = _stakingToken;
         rewardToken = _rewardToken;
         rewardRatePerSecond = _rewardRatePerSecond;
         lastRewardTime = block.timestamp;
+
+        uint256 decimalsRewardToken = uint256(rewardToken.decimals());
+        require(decimalsRewardToken < 30, "Must be inferior to 30");
+
+        PRECISION_FACTOR = uint256(10**(uint256(30) - decimalsRewardToken));
     }
 
     /// @notice Updates the reward calculations for all users
@@ -54,7 +61,7 @@ contract SubnetStakingPool is Ownable {
         }
         return
             rewardPerTokenStored +
-            ((block.timestamp - lastRewardTime) * rewardRatePerSecond * 1e18) / totalStaked;
+            ((block.timestamp - lastRewardTime) * rewardRatePerSecond * PRECISION_FACTOR) / totalStaked;
     }
 
     /// @notice Calculates the earned rewards for a user
@@ -62,7 +69,7 @@ contract SubnetStakingPool is Ownable {
     /// @return The total rewards earned by the user
     function earned(address account) public view returns (uint256) {
         return
-            ((userStaked[account] * (rewardPerToken() - userRewardPerTokenPaid[account])) / 1e18) +
+            ((userStaked[account] * (rewardPerToken() - userRewardPerTokenPaid[account])) / PRECISION_FACTOR) +
             userRewards[account];
     }
 
@@ -102,12 +109,5 @@ contract SubnetStakingPool is Ownable {
         userRewards[msg.sender] = 0;
         rewardToken.transfer(msg.sender, reward);
         emit RewardClaimed(msg.sender, reward);
-    }
-
-    /// @notice Updates the reward rate per second
-    /// @param newRate The new reward rate per second
-    function updateRewardRate(uint256 newRate) external onlyOwner updateReward(address(0)) {
-        rewardRatePerSecond = newRate;
-        emit RewardRateUpdated(newRate);
     }
 }
