@@ -210,4 +210,43 @@ describe("SubnetStakingPoolFactory", () => {
     expect(rewardBalanceAfter2 - rewardBalanceBefore2).to.lt(expectedReward);
     expect(rewardBalanceAfter3 - rewardBalanceBefore3).to.lt(expectedReward);
   });
+
+  it("should allow staking and withdrawing staked tokens", async () => {
+    const rewardRatePerSecond = ethers.parseEther("1");
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1; // Starts immediately
+    const endTime = startTime + 3600; // 1 hour duration
+
+    const tx = await factory.createPool(
+      await stakingToken.getAddress(),
+      await rewardToken.getAddress(),
+      rewardRatePerSecond,
+      startTime,
+      endTime
+    );
+    const receipt = await tx.wait();
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber, receipt!.blockNumber);
+
+    const poolAddress = logs[0].args?.poolAddress;
+    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
+
+    const userAddress1 = await user1.getAddress();
+
+    // Approve and stake tokens
+    const stakeAmount = ethers.parseEther("10");
+    await stakingToken.connect(user1).approve(await pool.getAddress(), stakeAmount);
+    await pool.connect(user1).stake(stakeAmount);
+
+    expect(await pool.totalStaked()).to.equal(stakeAmount);
+    expect(await pool.userStaked(userAddress1)).to.equal(stakeAmount);
+
+    // Withdraw staked tokens
+    await pool.connect(user1).withdraw(stakeAmount);
+
+    expect(await pool.totalStaked()).to.equal(0n);
+    expect(await pool.userStaked(userAddress1)).to.equal(0n);
+
+    const stakingBalanceAfterWithdraw = await stakingToken.balanceOf(userAddress1);
+    expect(stakingBalanceAfterWithdraw).to.equal(ethers.parseEther("1000")); // Original balance restored
+  });
+
 });
