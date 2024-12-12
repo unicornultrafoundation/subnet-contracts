@@ -2,12 +2,17 @@
 pragma solidity ^0.8.0;
 
 import "./SubnetStakingPool.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract SubnetStakingPoolFactory {
+contract SubnetStakingPoolFactory is Ownable {
     event PoolCreated(address indexed stakingToken, address indexed rewardToken, address poolAddress);
 
     // Array to store all deployed pools
     address[] public allPools;
+
+    constructor(
+        address initialOwner
+    ) Ownable(initialOwner) { }
 
     /// @notice Deploys a new staking pool
     /// @param stakingToken The address of the ERC20 token to be staked
@@ -21,7 +26,7 @@ contract SubnetStakingPoolFactory {
         uint256 rewardRatePerSecond,
         uint256 startTime,
         uint256 endTime
-    ) external returns (address) {
+    ) external onlyOwner returns (address) {
         require(address(stakingToken) != address(0), "Invalid staking token address");
         require(address(rewardToken) != address(0), "Invalid reward token address");
         require(endTime > startTime, "End time must be after start time");
@@ -29,7 +34,7 @@ contract SubnetStakingPoolFactory {
         bytes32 salt = keccak256(abi.encodePacked(address(stakingToken), address(rewardToken), rewardRatePerSecond, startTime, endTime));
         bytes memory bytecode = abi.encodePacked(
             type(SubnetStakingPool).creationCode,
-            abi.encode(stakingToken, rewardToken, rewardRatePerSecond, startTime, endTime)
+            abi.encode(msg.sender, stakingToken, rewardToken, rewardRatePerSecond, startTime, endTime)
         );
 
         address poolAddress;
