@@ -8,7 +8,7 @@ async function main() {
     //await nft.approve("0x857C4FB4d4195A24ce78E840b01261C5F9d8c9BF", 1)
 
     // Replace with your compiled contract name
-    const subnetStakingPoolFactory = await ethers.getContractAt("SubnetStakingPoolFactory", "0x6AdCb9Be740aef176F00032176A14AaFA1344FF3");
+    const subnetStakingPoolFactory = await ethers.getContractAt("SubnetStakingPoolFactory", "0x0dD44FA5f4C6Ce8B4A801556c685972636640d36");
 
     const tx = await subnetStakingPoolFactory.createPool(
         "0xC89C703Ca24d769eF57657faEC34170580871F90",
