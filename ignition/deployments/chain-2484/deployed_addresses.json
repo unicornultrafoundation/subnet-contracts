@@ -1,6 +1,3 @@
 {
-  "NftLicense#TestNFT": "0x9CEb5fBb9734aC71F365d7cc0EedA48bB9763891",
-  "SubnetRegistry#SubnetRegistry": "0x857C4FB4d4195A24ce78E840b01261C5F9d8c9BF",
-  "SubnetAppRegistryDeployment#SubnetAppRegistry": "0x4c1c54b9D8a5937C7b72C7e9773e687A787Ba202",
-  "SubnetNftVaultFactory#SubnetNftVaultFactory": "0xe285511e3D70d87b9b803Bc5748F1F37bC8933b1"
+  "SubnetNftVaultFactory#SubnetNftVaultFactory": "0xA69e8B32E1B508aa79ada9d3bd34607fF6bE74aA"
 }

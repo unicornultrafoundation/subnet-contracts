@@ -9,6 +9,12 @@ contract SubnetNftVault is ERC20, ERC20Permit {
     address public immutable nftContract; // Allowed NFT contract
     mapping(uint256 => address) public nftOwner; // Mapping from tokenId to owner address
 
+     // Events
+    event Locked(address indexed owner, uint256 indexed tokenId);
+    event Redeemed(address indexed owner, uint256 indexed tokenId);
+    event LockedBatch(address indexed owner, uint256[] tokenIds);
+    event RedeemedBatch(address indexed owner, uint256[] tokenIds);
+
     constructor(
         string memory name_,
         string memory symbol_,
@@ -31,6 +37,8 @@ contract SubnetNftVault is ERC20, ERC20Permit {
 
         // Mint 1 ERC20 token to the caller (1-to-1 mapping for simplicity)
         _mint(msg.sender, 1 ether); // Mint 1 token with 18 decimals
+
+        emit Locked(msg.sender, tokenId); // Emit event
     }
 
     /// @notice Redeems an NFT by burning ERC20 tokens
@@ -47,6 +55,8 @@ contract SubnetNftVault is ERC20, ERC20Permit {
 
         // Clear the owner record for the NFT
         delete nftOwner[tokenId];
+
+        emit Redeemed(msg.sender, tokenId); // Emit event
     }
 
     /// @notice Locks multiple NFTs into the vault and mints ERC20 tokens
@@ -70,6 +80,7 @@ contract SubnetNftVault is ERC20, ERC20Permit {
 
         // Mint tokens to the caller (1 token per NFT locked)
         _mint(msg.sender, length * 1 ether); // Mint tokens with 18 decimals
+        emit LockedBatch(msg.sender, tokenIds); // Emit event
     }
 
     /// @notice Redeems multiple NFTs by burning ERC20 tokens
@@ -93,5 +104,6 @@ contract SubnetNftVault is ERC20, ERC20Permit {
 
         // Burn tokens from the caller (1 token per NFT redeemed)
         _burn(msg.sender, length * 1 ether); // Burn tokens with 18 decimals
+        emit RedeemedBatch(msg.sender, tokenIds); // Emit event
     }
 }
