@@ -151,4 +151,19 @@ contract SubnetStakingPool is Ownable {
         rewardRatePerSecond = newRewardRate;
         emit RewardRateUpdated(newRewardRate);
     }
+
+    /// @notice Allows the owner to withdraw tokens sent to the contract by mistake
+    /// @param token The address of the token to withdraw
+    /// @param amount The amount of the token to withdraw
+    /// @param to The address to send the withdrawn tokens to
+    function recoverERC20(
+        address token,
+        uint256 amount,
+        address to
+    ) external onlyOwner {
+        require(token != address(stakingToken), "Cannot withdraw staking token");
+        require(to != address(0), "Invalid recipient address");
+
+        IERC20(token).transfer(to, amount);
+    }
 }
