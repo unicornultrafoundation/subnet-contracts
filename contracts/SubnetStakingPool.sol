@@ -26,6 +26,7 @@ contract SubnetStakingPool is Ownable {
     event Withdrawn(address indexed user, uint256 amount);
     event RewardClaimed(address indexed user, uint256 reward);
     event RewardRateUpdated(uint256 newRate);
+    event EndTimeUpdated(uint256 newEndTime);
 
     constructor(
         address initialOwner,
@@ -132,5 +133,22 @@ contract SubnetStakingPool is Ownable {
         userRewards[msg.sender] = 0;
         rewardToken.transfer(msg.sender, reward);
         emit RewardClaimed(msg.sender, reward);
+    }
+
+        /// @notice Allows the owner to update the end time
+    /// @param newEndTime The new end time for staking and rewards
+    function updateEndTime(uint256 newEndTime) external onlyOwner {
+        require(newEndTime > block.timestamp, "End time must be in the future");
+        require(newEndTime > startTime, "End time must be after start time");
+        endTime = newEndTime;
+        emit EndTimeUpdated(newEndTime);
+    }
+
+    /// @notice Allows the owner to update the reward rate
+    /// @param newRewardRate The new reward rate per second
+    function updateRewardRate(uint256 newRewardRate) external onlyOwner updateReward(address(0)){
+        require(newRewardRate > 0, "Reward rate must be greater than 0");
+        rewardRatePerSecond = newRewardRate;
+        emit RewardRateUpdated(newRewardRate);
     }
 }
