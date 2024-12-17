@@ -45,7 +45,9 @@ contract SubnetStakingPool is Ownable {
         endTime = _endTime;
         lastRewardTime = _startTime;
 
-        uint256 decimalsRewardToken = uint256(rewardToken.decimals());
+        uint256 decimalsRewardToken = rewardToken == IERC20Metadata(address(0))
+        ? 18
+        : uint256(rewardToken.decimals());
         require(decimalsRewardToken < 30, "Must be inferior to 30");
 
         PRECISION_FACTOR = uint256(10**(uint256(30) - decimalsRewardToken));
@@ -125,13 +127,19 @@ contract SubnetStakingPool is Ownable {
     function claimReward() external updateReward(msg.sender) {
         uint256 reward = userRewards[msg.sender];
         require(reward > 0, "No rewards to claim");
-        require(
-            rewardToken.balanceOf(address(this)) >= reward,
-            "Insufficient reward token balance"
-        );
-
         userRewards[msg.sender] = 0;
-        rewardToken.transfer(msg.sender, reward);
+        
+        if (address(rewardToken) == address(0)) {
+            (bool success, ) = msg.sender.call{value: reward}("");
+            require(success, "ETH transfer failed");
+        } else {
+            require(
+                rewardToken.balanceOf(address(this)) >= reward,
+                "Insufficient reward token balance"
+            );
+            rewardToken.transfer(msg.sender, reward);
+        }
+
         emit RewardClaimed(msg.sender, reward);
     }
 
@@ -162,8 +170,11 @@ contract SubnetStakingPool is Ownable {
         address to
     ) external onlyOwner {
         require(token != address(stakingToken), "Cannot withdraw staking token");
+        require(token != address(rewardToken), "Cannot withdraw reward token");
         require(to != address(0), "Invalid recipient address");
 
         IERC20(token).transfer(to, amount);
     }
+
+    receive() external payable {}
 }

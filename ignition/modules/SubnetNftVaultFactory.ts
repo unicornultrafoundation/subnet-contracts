@@ -4,7 +4,7 @@
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
 
 const SubnetNftVaultModule = buildModule("SubnetNftVaultFactory", (m) => {
-  const deployer = '0x8cb3C64E938065b1Ab4b137dB2b0e9953f66c3Eb'
+  const deployer = '0xA80805588121246a5688De1BC13c654870a4Ae24'
   const subnetNftVaultFactory = m.contract("SubnetNftVaultFactory", [deployer], {});
   return { subnetNftVaultFactory };
 });

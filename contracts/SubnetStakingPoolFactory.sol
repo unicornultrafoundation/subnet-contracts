@@ -28,7 +28,6 @@ contract SubnetStakingPoolFactory is Ownable {
         uint256 endTime
     ) external onlyOwner returns (address) {
         require(address(stakingToken) != address(0), "Invalid staking token address");
-        require(address(rewardToken) != address(0), "Invalid reward token address");
         require(endTime > startTime, "End time must be after start time");
 
         bytes32 salt = keccak256(abi.encodePacked(address(stakingToken), address(rewardToken), rewardRatePerSecond, startTime, endTime));

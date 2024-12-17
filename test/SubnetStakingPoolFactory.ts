@@ -286,4 +286,47 @@ describe("SubnetStakingPoolFactory", () => {
     await expect(pool.connect(user).stake(ethers.parseUnits("10", 18))).to.be.revertedWith("Staking period ended");
   });
 
+  it("Should claim native token (ETH) if rewardToken is 0x00", async function () {
+    const rewardRatePerSecond = ethers.parseEther("1");
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1; // Starts immediately
+    const endTime = startTime + 3600; // 1 hour duration
+    const tx = await factory.createPool(
+      await stakingToken.getAddress(),
+      ethers.ZeroAddress,
+      rewardRatePerSecond,
+      startTime,
+      endTime
+    );
+
+    const receipt = await tx.wait();
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber, receipt!.blockNumber);
+
+    const poolAddress = logs[0].args?.poolAddress;
+    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
+    await owner.sendTransaction({
+      to: await pool.getAddress(),
+      value: ethers.parseEther("5000"), // Send 10 ETH to contract
+    })
+   
+    // Approve and stake tokens
+    const stakeAmount = ethers.parseEther("10");
+    await stakingToken.connect(user1).approve(await pool.getAddress(), stakeAmount);
+    await pool.connect(user1).stake(stakeAmount);
+
+     // Advance time to accumulate rewards
+    await ethers.provider.send("evm_increaseTime", [3600]); // Fast forward 1 hour
+    await ethers.provider.send("evm_mine", []);
+
+     // Capture ETH balance before claim
+    const userBalanceBefore = await ethers.provider.getBalance(await user.getAddress());
+
+     // Claim reward
+    const txCLaim = await pool.connect(user1).claimReward();
+    const txReceipt = await txCLaim.wait();
+    const gasUsed = txReceipt!.gasUsed * txReceipt!.gasPrice;
+ 
+     // Check ETH balance after claim
+    const userBalanceAfter = await ethers.provider.getBalance(await user1.getAddress());
+    expect(userBalanceAfter - userBalanceBefore + gasUsed).to.be.lte(ethers.parseEther("3600"));
+  });
 });
