@@ -94,7 +94,7 @@ contract SubnetStakingPool is Ownable {
         if (account != address(0)) {
             userRewards[account] += _pendingReward(account);
             userLastClaimedTime[account] = block.timestamp;
-            userLastSnapshotIndex[msg.sender] = rewardRateHistory.length - 1;
+            userLastSnapshotIndex[account] = rewardRateHistory.length - 1;
         }
         _;
     }
