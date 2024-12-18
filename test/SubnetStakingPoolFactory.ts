@@ -784,4 +784,110 @@ describe("SubnetStakingPoolFactory", () => {
     await expect(pool.connect(user1).recoverNative()).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
   });
   
+  it("should allow users to claim rewards successfully during the staking period", async () => {
+    const rewardRatePerSecond = ethers.parseEther("0.01"); // Reward rate
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1; // Starts in 1 second
+    const endTime = startTime + 3600; // Ends in 1 hour
+  
+    // Create staking pool
+    const tx = await factory.createPool(
+      await stakingToken.getAddress(),
+      await rewardToken.getAddress(),
+      rewardRatePerSecond,
+      startTime,
+      endTime
+    );
+    const receipt = await tx.wait();
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
+    const poolAddress = logs[0].args?.poolAddress;
+    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
+  
+    // Transfer rewards to the pool
+    await rewardToken.transfer(poolAddress, ethers.parseEther("5000"));
+  
+    const stakeAmount = ethers.parseEther("1");
+    await stakingToken.connect(user1).approve(poolAddress, stakeAmount);
+    await pool.connect(user1).stake(stakeAmount);
+  
+    // Fast forward 30 minutes (1800 seconds)
+    await ethers.provider.send("evm_increaseTime", [1800]);
+    await ethers.provider.send("evm_mine");
+  
+    // Claim rewards
+    const rewardBalanceBefore = await rewardToken.balanceOf(await user1.getAddress());
+    const txClaim = await pool.connect(user1).claimReward();
+    const rewardBalanceAfter = await rewardToken.balanceOf(await user1.getAddress());
+  
+    // Check the rewards
+    const expectedReward = rewardRatePerSecond * 1800n; // RewardRate * ElapsedTime
+    const earnedReward = rewardBalanceAfter - rewardBalanceBefore;
+  
+    expect(earnedReward).to.be.closeTo(expectedReward, ethers.parseEther("0.1"));
+  });
+  
+  it("should revert if there are no rewards to claim", async () => {
+    const rewardRatePerSecond = ethers.parseEther("0.01");
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1;
+    const endTime = startTime + 3600;
+    // Create staking pool
+    const tx = await factory.createPool(
+      await stakingToken.getAddress(),
+      await rewardToken.getAddress(),
+      rewardRatePerSecond,
+      startTime,
+      endTime
+    );
+    const receipt = await tx.wait();
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
+    const poolAddress = logs[0].args?.poolAddress;
+    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
+  
+    const stakeAmount = ethers.parseEther("10");
+    await stakingToken.connect(user1).approve(poolAddress, stakeAmount);
+    //await pool.connect(user1).stake(stakeAmount);
+    
+    // Immediately claim reward without waiting
+    await expect(pool.connect(user1).claimReward()).to.be.revertedWith("No rewards to claim");
+  });
+  
+  it("should allow claiming rewards after the staking period ends", async () => {
+    const rewardRatePerSecond = ethers.parseEther("0.01");
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1;
+    const endTime = startTime + 3600;
+  
+    // Create staking pool
+    const tx = await factory.createPool(
+      await stakingToken.getAddress(),
+      await rewardToken.getAddress(),
+      rewardRatePerSecond,
+      startTime,
+      endTime
+    );
+    const receipt = await tx.wait();
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
+    const poolAddress = logs[0].args?.poolAddress;
+    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
+  
+    // Transfer rewards to the pool
+    await rewardToken.transfer(poolAddress, ethers.parseEther("5000"));
+  
+    const stakeAmount = ethers.parseEther("1");
+    await stakingToken.connect(user1).approve(poolAddress, stakeAmount);
+    await pool.connect(user1).stake(stakeAmount);
+  
+    // Fast forward past the staking period
+    await ethers.provider.send("evm_increaseTime", [3600 + 100]);
+    await ethers.provider.send("evm_mine");
+  
+    // Claim rewards
+    const rewardBalanceBefore = await rewardToken.balanceOf(await user1.getAddress());
+    await pool.connect(user1).claimReward();
+    const rewardBalanceAfter = await rewardToken.balanceOf(await user1.getAddress());
+  
+    const expectedReward = rewardRatePerSecond * 3600n; // Rewards for the entire staking period
+    const earnedReward = rewardBalanceAfter - rewardBalanceBefore;
+  
+    expect(earnedReward).to.be.closeTo(expectedReward, ethers.parseEther("0.1"));
+  });
+  
 });
