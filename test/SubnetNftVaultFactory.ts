@@ -147,4 +147,63 @@ describe("SubnetNftVault and SubnetNftVaultFactory", function () {
     const logs = await vaultFactory.queryFilter(vaultFactory.filters.VaultCreated(), receipt!.blockNumber, receipt!.blockNumber);
     expect(logs.length).to.equal(1);
   });
+
+  it("should revert when trying to lock the same NFT twice", async function () {
+    await nftContract.connect(deployer).mint(await user.getAddress(), 1);
+    await nftContract.connect(user).approve(await vault.getAddress(), 1);
+
+    await vault.connect(user).lock(1);
+
+    await expect(vault.connect(user).lock(1)).to.be.revertedWith("Not the owner of the NFT");
+  });
+
+  it("should revert when trying to redeem an NFT that is not locked", async function () {
+      await nftContract.connect(deployer).mint(await user.getAddress(), 1);
+
+      await expect(vault.connect(user).redeem(1)).to.be.revertedWith("Not the NFT owner");
+  });
+
+  it("should revert if another user tries to redeem an NFT they do not own", async function () {
+    await nftContract.connect(deployer).mint(await user.getAddress(), 1);
+    await nftContract.connect(user).approve(await vault.getAddress(), 1);
+    await vault.connect(user).lock(1);
+
+    await expect(vault.connect(deployer).redeem(1)).to.be.revertedWith("Not the NFT owner");
+  });
+
+  it("should handle a large batch lock and redeem", async function () {
+    const nftIds = Array.from({ length: 50 }, (_, i) => i + 1);
+
+    // Mint NFTs and approve the vault
+    for (let id of nftIds) {
+        await nftContract.connect(deployer).mint(await user.getAddress(), id);
+    }
+    await nftContract.connect(user).setApprovalForAll(await vault.getAddress(), true);
+
+    // Lock all NFTs
+    await vault.connect(user).lockBatch(nftIds);
+    expect(await vault.balanceOf(await user.getAddress())).to.equal(ethers.parseEther("50"));
+
+    // Redeem all NFTs
+    await vault.connect(user).redeemBatch(nftIds);
+    expect(await vault.balanceOf(await user.getAddress())).to.equal(0);
+
+    for (let id of nftIds) {
+        expect(await nftContract.ownerOf(id)).to.equal(await user.getAddress());
+    }
+  });
+
+  it("should allow ownership transfer of the vault factory", async function () {
+    const newOwner = await user.getAddress();
+    await vaultFactory.transferOwnership(newOwner);
+
+    expect(await vaultFactory.owner()).to.equal(newOwner);
+
+    // Ensure old owner cannot create a vault
+    await expect(
+        vaultFactory.createVault("NewVault", "NVT", await nftContract.getAddress())
+    ).to.be.revertedWithCustomError(vaultFactory, "OwnableUnauthorizedAccount");
+  });
+
+
 });
