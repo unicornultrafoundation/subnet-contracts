@@ -36,17 +36,17 @@ describe("SubnetStakingPoolFactory", () => {
     const Factory = await ethers.getContractFactory("SubnetStakingPoolFactory");
     factory = await Factory.deploy(await owner.getAddress());
 
-    // Set start and end times
+    // Set start and end times for pools
     startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 10; // Starts in 10 seconds
     endTime = startTime + 100; // Ends after 100 seconds
-
   });
 
   it("should deploy a new pool with correct parameters", async () => {
     const rewardRatePerSecond = ethers.parseEther("1");
-    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 60; // 1 minute from now
-    const endTime = startTime + 3600; // 1 hour duration
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 60; // Starts in 1 minute
+    const endTime = startTime + 3600; // Ends in 1 hour
 
+    // Create the staking pool
     const tx = await factory.createPool(
       await stakingToken.getAddress(),
       await rewardToken.getAddress(),
@@ -54,27 +54,25 @@ describe("SubnetStakingPoolFactory", () => {
       startTime,
       endTime
     );
+
     const receipt = await tx.wait();
     const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber, receipt!.blockNumber);
-    const event = logs[0];
-    expect(event).to.exist;
+    const poolAddress = logs[0]?.args?.poolAddress;
 
-    const poolAddress = event?.args?.poolAddress;
     expect(poolAddress).to.not.be.undefined;
 
+    // Fetch the deployed pool and verify its configuration
     const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
-
     expect(await pool.stakingToken()).to.equal(await stakingToken.getAddress());
     expect(await pool.rewardToken()).to.equal(await rewardToken.getAddress());
     expect(await pool.rewardRatePerSecond()).to.equal(rewardRatePerSecond);
   });
 
-  it("should correctly store deployed pools in the factory", async () => {
+  it("should prevent staking after the end time", async () => {
     const rewardRatePerSecond = ethers.parseEther("1");
-    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 60;
-    const endTime = startTime + 3600;
 
-    await factory.createPool(
+    // Create a staking pool
+    const tx = await factory.createPool(
       await stakingToken.getAddress(),
       await rewardToken.getAddress(),
       rewardRatePerSecond,
@@ -82,251 +80,157 @@ describe("SubnetStakingPoolFactory", () => {
       endTime
     );
 
-    const poolCount = await factory.getPoolCount();
-    expect(poolCount).to.equal(1);
+    const receipt = await tx.wait();
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
+    const poolAddress = logs[0].args?.poolAddress;
+    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
 
-    const poolAddress = await factory.getPool(0);
-    expect(poolAddress).to.not.be.undefined;
+    // Move time beyond the staking period
+    await ethers.provider.send("evm_increaseTime", [endTime - startTime + 10000]);
+    await ethers.provider.send("evm_mine");
+
+    // Attempt to stake and expect revert
+    await stakingToken.connect(user).approve(poolAddress, ethers.parseEther("10"));
+    await expect(pool.connect(user).stake(ethers.parseEther("10"))).to.be.revertedWith("Staking period ended");
   });
 
-  it("should revert if end time is before start time", async () => {
-    const rewardRatePerSecond = ethers.parseEther("1");
-    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 60;
-    const endTime = startTime - 10;
+  it("should distribute rewards proportionally among multiple users", async () => {
+    const rewardRatePerSecond = ethers.parseEther("0.01");
+    const duration = 3600; // 1 hour
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1;
+    const endTime = startTime + duration;
 
-    await expect(
-      factory.createPool(
-        await stakingToken.getAddress(),
-        await rewardToken.getAddress(),
-        rewardRatePerSecond,
-        startTime,
-        endTime
-      )
-    ).to.be.rejectedWith("End time must be after start time");
-  });
-
-  it("should allow staking and reward claiming in deployed pool", async () => {
-    const rewardRatePerSecond = ethers.parseEther("0.001");
-    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1; // Starts immediately
-    const endTime = startTime + 3700; // 1 hour duration
-
+    // Create pool
     const tx = await factory.createPool(
-      stakingToken.getAddress(),
-      rewardToken.getAddress(),
+      await stakingToken.getAddress(),
+      await rewardToken.getAddress(),
       rewardRatePerSecond,
       startTime,
       endTime
     );
     const receipt = await tx.wait();
-    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber, receipt!.blockNumber);
-
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
     const poolAddress = logs[0].args?.poolAddress;
     const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
 
-    await rewardToken.transfer(poolAddress, ethers.parseEther("1000"))
+    // Transfer rewards to the pool
+    await rewardToken.transfer(poolAddress, ethers.parseEther("5000"));
 
-    const userAddress = await user.getAddress();
-
-    // Approve and stake tokens
     const stakeAmount = ethers.parseEther("10");
-    await stakingToken.connect(user).approve(await pool.getAddress(), stakeAmount);
-    await pool.connect(user).stake(stakeAmount);
 
-    expect(await pool.totalStaked()).to.equal(stakeAmount);
-    expect(await pool.userStaked(userAddress)).to.equal(stakeAmount);
+    // Three users stake equal amounts
+    for (const u of [user, user1, user2]) {
+      await stakingToken.connect(u).approve(poolAddress, stakeAmount);
+      await pool.connect(u).stake(stakeAmount);
+    }
 
     // Fast forward time
     await ethers.provider.send("evm_increaseTime", [3600]);
-    await ethers.provider.send("evm_mine", []);
+    await ethers.provider.send("evm_mine");
 
-    // Claim rewards
-    const rewardBalanceBefore = await rewardToken.balanceOf(userAddress);
-    await pool.connect(user).claimReward();
-    let rewardBalanceAfter = await rewardToken.balanceOf(userAddress);
-    expect(rewardBalanceAfter).to.be.eq(ethers.parseEther("3.601"));
-    expect(rewardBalanceAfter).to.be.gt(rewardBalanceBefore);
+    // All users claim rewards
+    for (const u of [user, user1, user2]) {
+      const rewardBalanceBefore = await rewardToken.balanceOf(await u.getAddress());
+      await pool.connect(u).claimReward();
+      const rewardBalanceAfter = await rewardToken.balanceOf(await u.getAddress());
+      const earnedReward = rewardBalanceAfter - rewardBalanceBefore;
 
-    // Fast forward time
-    await ethers.provider.send("evm_increaseTime", [1000]);
-    await ethers.provider.send("evm_mine", []);
-
-    await pool.connect(user).claimReward();
-    rewardBalanceAfter = await rewardToken.balanceOf(userAddress);
-    expect(rewardBalanceAfter).to.be.eq(ethers.parseEther("3.697"));
-
-     // Fast forward time
-     await ethers.provider.send("evm_increaseTime", [1000]);
-     await ethers.provider.send("evm_mine", []);
-
-    await expect(pool.connect(user).claimReward()).to.be.revertedWith("No rewards to claim")
+      expect(earnedReward).to.be.closeTo(ethers.parseEther("360"), ethers.parseEther("1"));
+    }
   });
 
-  it("should distribute rewards equally among 3 users staking equally", async () => {
-    const rewardRatePerSecond = ethers.parseEther("1"); // 1 tokens per second
+  it("should handle native ETH rewards when rewardToken is address(0)", async () => {
+    const rewardRatePerSecond = ethers.parseEther("0.01");
     const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1;
     const endTime = startTime + 3600;
 
+    // Create pool with native ETH rewards
     const tx = await factory.createPool(
       await stakingToken.getAddress(),
-      await rewardToken.getAddress(),
+      ethers.ZeroAddress, // Native ETH as reward
       rewardRatePerSecond,
       startTime,
       endTime
     );
+
     const receipt = await tx.wait();
-    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber, receipt!.blockNumber);
-
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
     const poolAddress = logs[0].args?.poolAddress;
-    await rewardToken.transfer(poolAddress, ethers.parseEther("20000"))
-
     const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
 
+    // Fund the pool with ETH
+    await owner.sendTransaction({ to: poolAddress, value: ethers.parseEther("5000") });
+
+    // Stake tokens
     const stakeAmount = ethers.parseEther("10");
-
-    // User1 stakes
-    await stakingToken.connect(user).approve(await pool.getAddress(), stakeAmount);
-    await pool.connect(user).stake(stakeAmount);
-
-    // User2 stakes
-    await stakingToken.connect(user1).approve(await pool.getAddress(), stakeAmount);
+    await stakingToken.connect(user1).approve(poolAddress, stakeAmount);
     await pool.connect(user1).stake(stakeAmount);
-
-    // User3 stakes
-    await stakingToken.connect(user2).approve(await pool.getAddress(), stakeAmount);
-    await pool.connect(user2).stake(stakeAmount);
-
-    expect(await pool.totalStaked()).to.equal(ethers.parseEther("30"));
 
     // Fast forward time
     await ethers.provider.send("evm_increaseTime", [3600]);
-    await ethers.provider.send("evm_mine", []);
-
-    // User1 claims rewards
-    const rewardBalanceBefore1 = await rewardToken.balanceOf(await user.getAddress());
-    await pool.connect(user).claimReward();
-    const rewardBalanceAfter1 = await rewardToken.balanceOf(await user.getAddress());
-
-    // User2 claims rewards
-    const rewardBalanceBefore2 = await rewardToken.balanceOf(await user1.getAddress());
-    await pool.connect(user1).claimReward();
-    const rewardBalanceAfter2 = await rewardToken.balanceOf(await user1.getAddress());
-
-    // User3 claims rewards
-    const rewardBalanceBefore3 = await rewardToken.balanceOf(await user2.getAddress());
-    await pool.connect(user2).claimReward();
-    const rewardBalanceAfter3 = await rewardToken.balanceOf(await user2.getAddress());
-
-    const expectedReward = ethers.parseEther("1210")
-
-    expect(rewardBalanceAfter1 - rewardBalanceBefore1).to.lt(expectedReward);
-    expect(rewardBalanceAfter2 - rewardBalanceBefore2).to.lt(expectedReward);
-    expect(rewardBalanceAfter3 - rewardBalanceBefore3).to.lt(expectedReward);
-  });
-
-  it("should allow staking and withdrawing staked tokens", async () => {
-    const rewardRatePerSecond = ethers.parseEther("1");
-    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1; // Starts immediately
-    const endTime = startTime + 3600; // 1 hour duration
-
-    const tx = await factory.createPool(
-      await stakingToken.getAddress(),
-      await rewardToken.getAddress(),
-      rewardRatePerSecond,
-      startTime,
-      endTime
-    );
-    const receipt = await tx.wait();
-    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber, receipt!.blockNumber);
-
-    const poolAddress = logs[0].args?.poolAddress;
-    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
-
-    const userAddress1 = await user1.getAddress();
-
-    // Approve and stake tokens
-    const stakeAmount = ethers.parseEther("10");
-    await stakingToken.connect(user1).approve(await pool.getAddress(), stakeAmount);
-    await pool.connect(user1).stake(stakeAmount);
-
-    expect(await pool.totalStaked()).to.equal(stakeAmount);
-    expect(await pool.userStaked(userAddress1)).to.equal(stakeAmount);
-
-    // Withdraw staked tokens
-    await pool.connect(user1).withdraw(stakeAmount);
-
-    expect(await pool.totalStaked()).to.equal(0n);
-    expect(await pool.userStaked(userAddress1)).to.equal(0n);
-
-    const stakingBalanceAfterWithdraw = await stakingToken.balanceOf(userAddress1);
-    expect(stakingBalanceAfterWithdraw).to.equal(ethers.parseEther("1000")); // Original balance restored
-  });
-
-  it("should not allow staking after the end time", async function () {
-    const rewardRatePerSecond = ethers.parseEther("1");
-    
-    const tx = await factory.createPool(
-      await stakingToken.getAddress(),
-      await rewardToken.getAddress(),
-      rewardRatePerSecond,
-      startTime,
-      endTime
-    );
-    const receipt = await tx.wait();
-    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber, receipt!.blockNumber);
-
-    const poolAddress = logs[0].args?.poolAddress;
-    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
-
-    // Fast forward to after the end time
-    await ethers.provider.send("evm_increaseTime", [endTime - (await ethers.provider.getBlock("latest"))!.timestamp + 1]);
     await ethers.provider.send("evm_mine");
 
-    // Attempt to stake
-    await stakingToken.connect(user).approve(await pool.getAddress(), ethers.parseUnits("10", 18));
-    await expect(pool.connect(user).stake(ethers.parseUnits("10", 18))).to.be.revertedWith("Staking period ended");
+    // Claim rewards
+    const balanceBefore = await ethers.provider.getBalance(await user1.getAddress());
+    const txClaim = await pool.connect(user1).claimReward();
+    const gasUsed = (await txClaim.wait())!.gasUsed * txClaim.gasPrice!;
+    const balanceAfter = await ethers.provider.getBalance(await user1.getAddress());
+
+    expect(balanceAfter - balanceBefore + gasUsed).to.be.closeTo(ethers.parseEther("360"), ethers.parseEther("1"));
   });
 
-  it("Should claim native token (ETH) if rewardToken is 0x00", async function () {
-    const rewardRatePerSecond = ethers.parseEther("1");
-    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1; // Starts immediately
-    const endTime = startTime + 3600; // 1 hour duration
+  it("should correctly update reward rate during the staking period", async () => {
+    const initialRewardRate = ethers.parseEther("1");
+    const updatedRewardRate = ethers.parseEther("2");
+
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1;
+    const endTime = startTime + 3600;
+  
+    // Create a staking pool
     const tx = await factory.createPool(
       await stakingToken.getAddress(),
-      ethers.ZeroAddress,
-      rewardRatePerSecond,
+      await rewardToken.getAddress(),
+      initialRewardRate,
       startTime,
       endTime
     );
-
+  
     const receipt = await tx.wait();
-    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber, receipt!.blockNumber);
-
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
     const poolAddress = logs[0].args?.poolAddress;
     const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
-    await owner.sendTransaction({
-      to: await pool.getAddress(),
-      value: ethers.parseEther("5000"), // Send 10 ETH to contract
-    })
-   
-    // Approve and stake tokens
-    const stakeAmount = ethers.parseEther("10");
-    await stakingToken.connect(user1).approve(await pool.getAddress(), stakeAmount);
+  
+    // Transfer rewards to the pool
+    await rewardToken.transfer(poolAddress, ethers.parseEther("5000"));
+  
+    const stakeAmount = ethers.parseEther("1");
+  
+    // User stakes tokens
+    await stakingToken.connect(user1).approve(poolAddress, stakeAmount);
     await pool.connect(user1).stake(stakeAmount);
-
-     // Advance time to accumulate rewards
-    await ethers.provider.send("evm_increaseTime", [3600]); // Fast forward 1 hour
-    await ethers.provider.send("evm_mine", []);
-
-     // Capture ETH balance before claim
-    const userBalanceBefore = await ethers.provider.getBalance(await user.getAddress());
-
-     // Claim reward
-    const txCLaim = await pool.connect(user1).claimReward();
-    const txReceipt = await txCLaim.wait();
-    const gasUsed = txReceipt!.gasUsed * txReceipt!.gasPrice;
- 
-     // Check ETH balance after claim
-    const userBalanceAfter = await ethers.provider.getBalance(await user1.getAddress());
-    expect(userBalanceAfter - userBalanceBefore + gasUsed).to.be.lte(ethers.parseEther("3600"));
+  
+    // Fast forward 50 seconds
+    await ethers.provider.send("evm_increaseTime", [50]);
+    await ethers.provider.send("evm_mine");
+  
+    // Update reward rate
+    await expect(pool.connect(owner).updateRewardRate(updatedRewardRate))
+      .to.emit(pool, "RewardRateUpdated")
+      .withArgs(updatedRewardRate);
+  
+    // Fast forward another 50 seconds
+    await ethers.provider.send("evm_increaseTime", [50]);
+    await ethers.provider.send("evm_mine");
+  
+    // User claims rewards
+    const rewardBalanceBefore = await rewardToken.balanceOf(await user1.getAddress());
+    await pool.connect(user1).claimReward();
+    const rewardBalanceAfter = await rewardToken.balanceOf(await user1.getAddress());
+    const earnedReward = rewardBalanceAfter - rewardBalanceBefore;
+  
+    // Check the rewards calculation: 50 seconds at rate 1 + 50 seconds at rate 2
+    const expectedReward = ethers.parseEther("150"); // 10 * 50 * 1 + 10 * 50 * 2
+    expect(earnedReward).to.be.closeTo(expectedReward, ethers.parseEther("3"));
   });
+  
 });

@@ -5,29 +5,57 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
+/**
+ * @title SubnetStakingPool
+ * @dev This contract implements a staking pool where users can stake tokens and earn rewards over time.
+ * It supports configurable reward rates, staking periods, and allows the contract owner to recover tokens sent by mistake.
+ */
 contract SubnetStakingPool is Ownable {
+    // Staking and reward tokens
     IERC20Metadata public immutable stakingToken;
-    IERC20Metadata public immutable rewardToken; // Reward token to be distributed
+    IERC20Metadata public immutable rewardToken;
 
-    uint256 public rewardRatePerSecond; // Reward rate in tokens per second
-    uint256 public totalStaked; // Total tokens staked in the pool
-    uint256 public lastRewardTime; // Timestamp of the last reward update
-    uint256 public rewardPerTokenStored; // Accumulated reward per token
-    uint256 public PRECISION_FACTOR; // The precision factor
+    // Reward rate per second (token reward distribution rate)
+    uint256 public rewardRatePerSecond;
 
-    uint256 public startTime; // Staking and rewards start time
-    uint256 public endTime; // Staking and rewards end time
+    // Precision factor to adjust for reward token decimals (to avoid floating-point inaccuracies)
+    uint256 public PRECISION_FACTOR;
 
-    mapping(address => uint256) public userStaked; // Staked amount per user
-    mapping(address => uint256) public userRewardPerTokenPaid; // Reward debt per user
-    mapping(address => uint256) public userRewards; // Rewards available for withdrawal
+    // Start and end times of the staking pool
+    uint256 public startTime;
+    uint256 public endTime;
 
+    // Structure to store reward rate changes over time
+    struct RewardRateSnapshot {
+        uint256 time; // Time when the reward rate was updated
+        uint256 rate; // New reward rate
+    }
+
+    // History of reward rate changes
+    RewardRateSnapshot[] public rewardRateHistory;
+
+    // Mappings to track user stakes, last claimed reward time, pending rewards, and snapshot index
+    mapping(address => uint256) public userStaked; // Tracks amount staked by users
+    mapping(address => uint256) public userLastClaimedTime; // Last time rewards were claimed
+    mapping(address => uint256) public userRewards; // Accumulated rewards for users
+    mapping(address => uint256) public userLastSnapshotIndex; // Last snapshot index for rewards calculation
+
+    // Events to log important contract interactions
     event Staked(address indexed user, uint256 amount);
     event Withdrawn(address indexed user, uint256 amount);
     event RewardClaimed(address indexed user, uint256 reward);
-    event RewardRateUpdated(uint256 newRate);
     event EndTimeUpdated(uint256 newEndTime);
+    event RewardRateUpdated(uint256 newRate);
 
+    /**
+     * @dev Constructor initializes the staking pool.
+     * @param initialOwner Address of the contract owner.
+     * @param _stakingToken ERC20 token used for staking.
+     * @param _rewardToken ERC20 token distributed as rewards.
+     * @param _rewardRatePerSecond Reward rate per second.
+     * @param _startTime Start time of the staking period.
+     * @param _endTime End time of the staking period.
+     */
     constructor(
         address initialOwner,
         IERC20Metadata _stakingToken,
@@ -37,138 +65,176 @@ contract SubnetStakingPool is Ownable {
         uint256 _endTime
     ) Ownable(initialOwner) {
         require(_startTime < _endTime, "Start time must be before end time");
+        require(_rewardRatePerSecond > 0, "Reward rate must be positive");
 
+        // Initialize staking and reward tokens
         stakingToken = _stakingToken;
         rewardToken = _rewardToken;
-        rewardRatePerSecond = _rewardRatePerSecond;
         startTime = _startTime;
         endTime = _endTime;
-        lastRewardTime = _startTime;
+        
+        rewardRatePerSecond = _rewardRatePerSecond;
 
-        uint256 decimalsRewardToken = rewardToken == IERC20Metadata(address(0))
-        ? 18
-        : uint256(rewardToken.decimals());
-        require(decimalsRewardToken < 30, "Must be inferior to 30");
+        // Add initial reward rate snapshot
+        rewardRateHistory.push(RewardRateSnapshot({
+            time: block.timestamp,
+            rate: rewardRatePerSecond
+        }));
 
-        PRECISION_FACTOR = uint256(10**(uint256(30) - decimalsRewardToken));
+        // Calculate precision factor based on staking token's decimals
+        uint256 decimalsStakingToken = uint256(stakingToken.decimals());
+        PRECISION_FACTOR = uint256(10**decimalsStakingToken);
     }
 
-    /// @notice Updates the reward calculations for all users
+    /**
+     * @dev Modifier to update the rewards for a user before executing a function.
+     * Updates the user's pending rewards and last claimed time.
+     */
     modifier updateReward(address account) {
-        rewardPerTokenStored = rewardPerToken();
-        lastRewardTime = block.timestamp;
-
         if (account != address(0)) {
-            userRewards[account] = earned(account);
-            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+            userRewards[account] += _pendingReward(account);
+            userLastClaimedTime[account] = block.timestamp;
+            userLastSnapshotIndex[msg.sender] = rewardRateHistory.length - 1;
         }
         _;
     }
 
-    /// @notice Ensures the function is called within the staking period
+    /**
+     * @dev Modifier to ensure the staking period is active.
+     */
     modifier withinStakingPeriod() {
         require(block.timestamp >= startTime, "Staking not started yet");
         require(block.timestamp <= endTime, "Staking period ended");
         _;
     }
 
-    /// @notice Calculates the reward per token
-    /// @return The reward per token scaled by 1e18
-    function rewardPerToken() public view returns (uint256) {
-        if (totalStaked == 0 || block.timestamp < startTime) {
-            return rewardPerTokenStored;
+    /**
+     * @dev Internal function to calculate the pending rewards for a user.
+     * @param account Address of the user.
+     * @return Pending reward amount.
+     */
+    function _pendingReward(address account) internal view returns (uint256) {
+        uint256 totalReward = 0;
+        uint256 staked = userStaked[account];
+        uint256 lastClaimTime = userLastClaimedTime[account];
+        uint256 lastSnapshotIndex = userLastSnapshotIndex[account];
+
+        // Loop through reward rate history starting from the last snapshot index
+        for (uint256 i = lastSnapshotIndex; i < rewardRateHistory.length; i++) {
+            RewardRateSnapshot memory snapshot = rewardRateHistory[i];
+
+            // Determine the effective start and end times for reward calculation
+            uint256 effectiveStartTime = snapshot.time > lastClaimTime ? snapshot.time : lastClaimTime;
+            effectiveStartTime = effectiveStartTime < startTime ? startTime : effectiveStartTime;
+
+            uint256 effectiveEndTime = (i == rewardRateHistory.length - 1) ? block.timestamp : rewardRateHistory[i + 1].time;
+            effectiveEndTime = effectiveEndTime > endTime ? endTime : effectiveEndTime;
+
+            if (effectiveEndTime <= effectiveStartTime) {
+                continue; // Skip if no valid time range exists
+            }
+
+            // Calculate time elapsed and rewards accrued
+            uint256 timeElapsed = effectiveEndTime - effectiveStartTime;
+            totalReward += (staked * snapshot.rate * timeElapsed) / PRECISION_FACTOR;
         }
 
-        uint256 applicableEndTime = block.timestamp > endTime ? endTime : block.timestamp;
-        if (applicableEndTime <= lastRewardTime) {
-            return rewardPerTokenStored;
-        }
-
-        return
-            rewardPerTokenStored +
-            ((applicableEndTime - lastRewardTime) * rewardRatePerSecond * PRECISION_FACTOR) / totalStaked;
+        return totalReward;
     }
 
-
-    /// @notice Calculates the earned rewards for a user
-    /// @param account The address of the user
-    /// @return The total rewards earned by the user
+    /**
+     * @dev View function to calculate the total earned rewards for a user.
+     * @param account Address of the user.
+     * @return Total earned rewards.
+     */
     function earned(address account) public view returns (uint256) {
-        return
-            ((userStaked[account] * (rewardPerToken() - userRewardPerTokenPaid[account])) / PRECISION_FACTOR) +
-            userRewards[account];
+        return userRewards[account] + _pendingReward(account);
     }
 
-    /// @notice Allows a user to stake tokens
-    /// @param amount The amount of tokens to stake
+    /**
+     * @dev Allows users to stake tokens in the pool.
+     * @param amount Amount of tokens to stake.
+     */
     function stake(uint256 amount) external withinStakingPeriod updateReward(msg.sender) {
         require(amount > 0, "Cannot stake 0");
-        totalStaked += amount;
+
         userStaked[msg.sender] += amount;
 
         stakingToken.transferFrom(msg.sender, address(this), amount);
+
         emit Staked(msg.sender, amount);
     }
 
-    /// @notice Allows a user to withdraw staked tokens
-    /// @param amount The amount of tokens to withdraw
+    /**
+     * @dev Allows users to withdraw their staked tokens.
+     * @param amount Amount of tokens to withdraw.
+     */
     function withdraw(uint256 amount) external updateReward(msg.sender) {
         require(amount > 0, "Cannot withdraw 0");
         require(userStaked[msg.sender] >= amount, "Withdraw amount exceeds staked");
 
-        totalStaked -= amount;
         userStaked[msg.sender] -= amount;
 
         stakingToken.transfer(msg.sender, amount);
+
         emit Withdrawn(msg.sender, amount);
     }
 
-    /// @notice Allows a user to claim their rewards
+    /**
+     * @dev Allows users to claim their earned rewards.
+     */
     function claimReward() external updateReward(msg.sender) {
         uint256 reward = userRewards[msg.sender];
         require(reward > 0, "No rewards to claim");
+
         userRewards[msg.sender] = 0;
-        
+
         if (address(rewardToken) == address(0)) {
             (bool success, ) = msg.sender.call{value: reward}("");
             require(success, "ETH transfer failed");
         } else {
-            require(
-                rewardToken.balanceOf(address(this)) >= reward,
-                "Insufficient reward token balance"
-            );
+            require(rewardToken.balanceOf(address(this)) >= reward, "Insufficient reward token balance");
             rewardToken.transfer(msg.sender, reward);
         }
 
         emit RewardClaimed(msg.sender, reward);
     }
 
-        /// @notice Allows the owner to update the end time
-    /// @param newEndTime The new end time for staking and rewards
+    /**
+     * @dev Updates the reward rate for future calculations. Only callable by the owner.
+     * @param newRate New reward rate per second.
+     */
+    function updateRewardRate(uint256 newRate) external onlyOwner {
+        require(newRate > 0, "Reward rate must be positive");
+        rewardRatePerSecond = newRate;
+
+        rewardRateHistory.push(RewardRateSnapshot({
+            time: block.timestamp,
+            rate: rewardRatePerSecond
+        }));
+
+        emit RewardRateUpdated(newRate);
+    }
+
+    /**
+     * @dev Updates the staking end time. Only callable by the owner.
+     * @param newEndTime New end time for staking.
+     */
     function updateEndTime(uint256 newEndTime) external onlyOwner {
         require(newEndTime > block.timestamp, "End time must be in the future");
         require(newEndTime > startTime, "End time must be after start time");
         endTime = newEndTime;
+
         emit EndTimeUpdated(newEndTime);
     }
 
-    /// @notice Allows the owner to update the reward rate
-    /// @param newRewardRate The new reward rate per second
-    function updateRewardRate(uint256 newRewardRate) external onlyOwner updateReward(address(0)){
-        require(newRewardRate > 0, "Reward rate must be greater than 0");
-        rewardRatePerSecond = newRewardRate;
-        emit RewardRateUpdated(newRewardRate);
-    }
-
-    /// @notice Allows the owner to withdraw tokens sent to the contract by mistake
-    /// @param token The address of the token to withdraw
-    /// @param amount The amount of the token to withdraw
-    /// @param to The address to send the withdrawn tokens to
-    function recoverERC20(
-        address token,
-        uint256 amount,
-        address to
-    ) external onlyOwner {
+    /**
+     * @dev Allows the owner to recover tokens mistakenly sent to the contract.
+     * @param token Address of the token to recover.
+     * @param amount Amount of tokens to recover.
+     * @param to Address to send the recovered tokens to.
+     */
+    function recoverERC20(address token, uint256 amount, address to) external onlyOwner {
         require(token != address(stakingToken), "Cannot withdraw staking token");
         require(token != address(rewardToken), "Cannot withdraw reward token");
         require(to != address(0), "Invalid recipient address");
@@ -176,5 +242,8 @@ contract SubnetStakingPool is Ownable {
         IERC20(token).transfer(to, amount);
     }
 
+    /**
+     * @dev Fallback function to accept native ETH transfers.
+     */
     receive() external payable {}
 }
