@@ -667,5 +667,121 @@ describe("SubnetStakingPoolFactory", () => {
     const updatedEndTime = await pool.endTime();
     expect(updatedEndTime).to.equal(newEndTime);
   });
+
+  it("should allow the owner to recover native ETH if rewardToken is not native", async () => {
+    // Create pool with non-native reward token
+    const rewardRatePerSecond = ethers.parseEther("0.01");
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1;
+    const endTime = startTime + 3600;
+  
+    const tx = await factory.createPool(
+      await stakingToken.getAddress(),
+      await rewardToken.getAddress(), // Non-native reward token
+      rewardRatePerSecond,
+      startTime,
+      endTime
+    );
+    const receipt = await tx.wait();
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
+    const poolAddress = logs[0].args?.poolAddress;
+    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
+  
+    // Send native ETH to the pool contract
+    const depositAmount = ethers.parseEther("1");
+    await owner.sendTransaction({
+      to: poolAddress,
+      value: depositAmount,
+    });
+  
+    // Check initial contract balance
+    const contractBalanceBefore = await ethers.provider.getBalance(poolAddress);
+    expect(contractBalanceBefore).to.equal(depositAmount);
+  
+    // Recover native ETH
+    const ownerBalanceBefore = await ethers.provider.getBalance(await owner.getAddress());
+    const recoverTx = await pool.connect(owner).recoverNative();
+    const recoverReceipt = await recoverTx.wait();
+  
+    const gasUsed = recoverReceipt!.gasUsed - recoverTx.gasPrice!;
+    const ownerBalanceAfter = await ethers.provider.getBalance(await owner.getAddress());
+    const contractBalanceAfter = await ethers.provider.getBalance(poolAddress);
+  
+    // Verify the recovery
+    expect(contractBalanceAfter).to.equal(0);
+    expect(ownerBalanceAfter + gasUsed).to.be.closeTo(ownerBalanceBefore + depositAmount, ethers.parseEther("0.001"));
+  });
+  
+  it("should revert recoverNative if rewardToken is native ETH", async () => {
+    // Create pool with native ETH as reward token
+    const rewardRatePerSecond = ethers.parseEther("0.01");
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1;
+    const endTime = startTime + 3600;
+  
+    const tx = await factory.createPool(
+      await stakingToken.getAddress(),
+      ethers.ZeroAddress, // Native ETH as reward token
+      rewardRatePerSecond,
+      startTime,
+      endTime
+    );
+    const receipt = await tx.wait();
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
+    const poolAddress = logs[0].args?.poolAddress;
+    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
+  
+    // Attempt to recover native ETH
+    await expect(pool.connect(owner).recoverNative()).to.be.revertedWith("Cannot recover native ETH if reward token is native ETH");
+  });
+  
+  it("should revert recoverNative if no ETH is available", async () => {
+    // Create pool with non-native reward token
+    const rewardRatePerSecond = ethers.parseEther("0.01");
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1;
+    const endTime = startTime + 3600;
+  
+    const tx = await factory.createPool(
+      await stakingToken.getAddress(),
+      await rewardToken.getAddress(), // Non-native reward token
+      rewardRatePerSecond,
+      startTime,
+      endTime
+    );
+    const receipt = await tx.wait();
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
+    const poolAddress = logs[0].args?.poolAddress;
+    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
+  
+    // Attempt to recover native ETH with zero balance
+    await expect(pool.connect(owner).recoverNative()).to.be.revertedWith("No native Ether to recover");
+  });
+  
+  it("should prevent non-owner from calling recoverNative", async () => {
+    // Create pool with non-native reward token
+    const rewardRatePerSecond = ethers.parseEther("0.01");
+    const startTime = (await ethers.provider.getBlock("latest"))!.timestamp + 1;
+    const endTime = startTime + 3600;
+  
+    const tx = await factory.createPool(
+      await stakingToken.getAddress(),
+      await rewardToken.getAddress(), // Non-native reward token
+      rewardRatePerSecond,
+      startTime,
+      endTime
+    );
+    const receipt = await tx.wait();
+    const logs = await factory.queryFilter(factory.filters.PoolCreated(), receipt!.blockNumber);
+    const poolAddress = logs[0].args?.poolAddress;
+    const pool = await ethers.getContractAt("SubnetStakingPool", poolAddress);
+  
+    // Send native ETH to the pool contract
+    const depositAmount = ethers.parseEther("1");
+    await owner.sendTransaction({
+      to: poolAddress,
+      value: depositAmount,
+    });
+  
+    // Attempt recovery by a non-owner
+    await expect(pool.connect(user1).recoverNative()).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
+  });
   
 });

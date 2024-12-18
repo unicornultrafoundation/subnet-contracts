@@ -242,8 +242,22 @@ contract SubnetStakingPool is Ownable {
         IERC20(token).transfer(to, amount);
     }
 
+    
+    /**
+     * @dev Allows the owner to recover native ETH from the contract.
+     * Only callable if the reward token is not native ETH.
+     */
+    function recoverNative() external onlyOwner {
+        require(address(rewardToken) != address(0), "Cannot recover native ETH if reward token is native ETH");
+        uint256 balance = address(this).balance;
+        require(balance > 0, "No native Ether to recover");
+        payable(owner()).transfer(balance);
+    }
+
     /**
      * @dev Fallback function to accept native ETH transfers.
      */
     receive() external payable {}
+
+    fallback() external payable {}
 }
