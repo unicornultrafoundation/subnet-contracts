@@ -340,6 +340,40 @@ contract SubnetAppRegistry is EIP712, Ownable {
         emit NodeRegistered(subnetId, appId, subnet.owner);
     }
 
+    /**
+    * @dev Unregisters a node from a specific application when the subnet no longer exists.
+    *
+    * @param subnetId The ID of the subnet where the node was registered.
+    * @param appId The ID of the application the node was registered for.
+    */
+    function unregisterNode(uint256 subnetId, uint256 appId) external {
+        // Validate application ID
+        require(appId > 0 && appId <= appCount, "Invalid App ID");
+
+        // Fetch the application
+        App storage app = apps[appId];
+
+        // Ensure the node is registered to the app
+        require(appNodes[appId][subnetId].isRegistered, "Node not registered to this app");
+
+        // Check if the subnet exists
+        try subnetRegistry.getSubnet(subnetId) returns (ISubnetRegistry.Subnet memory subnet) {
+            // Validate the subnet is inactive
+            require(!subnet.active, "Subnet is still active");
+        } catch {
+            // If the subnet does not exist, proceed with unregistration
+        }
+
+        // Unregister the node from the app
+        appNodes[appId][subnetId].isRegistered = false;
+
+        // Decrement the app's node count
+        app.nodeCount--;
+
+        // Emit the NodeRegistered event with zero address to indicate unregistration
+        emit NodeRegistered(subnetId, appId, address(0));
+    }
+
 
    /**
     * @dev Claims a reward for node resources based on usage data.

@@ -347,6 +347,55 @@ describe("SubnetAppRegistry", function () {
         expect(app.operator).to.equal(newOperator);
     });
 
+    it("should unregister a node when the subnet no longer exists", async function () {
+        // Mock application creation
+        const appBudget = ethers.parseEther("10");
+        const operator = owner.address;
+        await subnetAppRegistry.createApp(
+            "TestApp",
+            "TAPP",
+            "peer123",
+            appBudget,
+            10, // maxNodes
+            2, // minCpu
+            1, // minGpu
+            4, // minMemory
+            10, // minUploadBandwidth
+            20, // minDownloadBandwidth
+            1, // pricePerCpu
+            1, // pricePerGpu
+            1, // pricePerMemoryGB
+            1, // pricePerStorageGB
+            1, // pricePerBandwidthGB
+            "metadata", // PaymentMethod.DURATION
+            operator,
+            { value: appBudget }
+        );
+
+        // Mock subnet registration in SubnetRegistry
+        const subnetId = 1;
+
+        // Register the node to the app
+        await subnetAppRegistry.registerNode(subnetId, 1);
+
+        // Verify the node is registered
+        let registeredApp = await subnetAppRegistry.getAppNode(1, subnetId);
+        expect(registeredApp.isRegistered).to.equal(true);
+
+        // Deregister the subnet
+        await subnetRegistry.deregisterSubnet(subnetId);
+
+        // Unregister the node from the app
+        await subnetAppRegistry.unregisterNode(subnetId, 1);
+
+        // Verify the node is unregistered
+        await expect(subnetAppRegistry.getAppNode(1, subnetId)).to.be.revertedWith("Node not registered to this app");
+
+        // Verify the app's node count
+        const app = await subnetAppRegistry.apps(1);
+        expect(app.nodeCount).to.equal(0);
+    });
+
     describe("ClaimReward", () => {
         let owner: HardhatEthersSigner, treasury: HardhatEthersSigner;
         let feeRate = 50n
