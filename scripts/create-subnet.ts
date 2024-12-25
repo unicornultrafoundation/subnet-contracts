@@ -3,27 +3,30 @@ import { ethers } from 'hardhat'
 async function main() {
     const [owner] = await ethers.getSigners();
 
+    const tokenId = 11004
+
     const nft = await ethers.getContractAt("TestNFT", "0x9CEb5fBb9734aC71F365d7cc0EedA48bB9763891");
-    //await nft.mint(owner.address, 1)
-    //await nft.approve("0x857C4FB4d4195A24ce78E840b01261C5F9d8c9BF", 1)
+    const tx1 = await nft.mint(owner.address, tokenId)
+    await tx1.wait()
+    const tx2 = await nft.approve("0x857C4FB4d4195A24ce78E840b01261C5F9d8c9BF", tokenId)
+    await tx2.wait()
 
     // Replace with your compiled contract name
     const subnetRegistry = await ethers.getContractAt("SubnetRegistry", "0x857C4FB4d4195A24ce78E840b01261C5F9d8c9BF");
 
-    // Create a subnet
-    // console.log("Creating a subnet...");
-    // const subnetTx = await subnetRegistry.registerSubnet(
-    //     1n,
-    //     "12D3KooWGNQYBFWmKgiAgEsQ4u2WznEgR2NmrBbYcfq33yQo4D8a",
-    //     "Node1",
-    //     ""
-    // );
-    // await subnetTx.wait();
-    // console.log("Subnet created successfully!");
+    //Create a subnet
+    console.log("Creating a subnet...");
+    const subnetTx = await subnetRegistry.registerSubnet(
+        tokenId,
+        "12D3KooWDSu3jifAh47k1LBfxeEMAP9bNYe54b3mQ1buzq4eUNWa",
+        "Node2",
+        ""
+    );
+    await subnetTx.wait();
+    console.log("Subnet created successfully!");
 
     // const subnetAppRegistry = await ethers.getContractAt("SubnetAppRegistry", "0x4c1c54b9D8a5937C7b72C7e9773e687A787Ba202");
-    // const tx = await subnetAppRegistry.registerNode(2, 1)
-    // await tx.wait();
+
     // // Create an application
     // console.log("Creating an app...");
     // const appTx = await subnetAppRegistry.createApp(
@@ -45,7 +48,7 @@ async function main() {
     //     "ewogICAgImFwcEluZm8iOiB7CgkJCSJuYW1lIjogIk15QXBwIiwKCQkJImRlc2NyaXB0aW9uIjogIlRoaXMgaXMgYSBzYW1wbGUgZGVjZW50cmFsaXplZCBhcHBsaWNhdGlvbi4iLAoJCQkibG9nbyI6ICJodHRwczovL2V4YW1wbGUuY29tL2xvZ28ucG5nIiwKCQkJIndlYnNpdGUiOiAiaHR0cHM6Ly9leGFtcGxlLmNvbSIKCQl9LAoJCSJjb250YWluZXJDb25maWciOiB7CgkJCSJpbWFnZSI6ICJuZ2lueDpsYXRlc3QiCgkJfSwKCQkiY29udGFjdEluZm8iOiB7CgkJCSJlbWFpbCI6ICJzdXBwb3J0QGV4YW1wbGUuY29tIiwKCQkJImdpdGh1YiI6ICJodHRwczovL2dpdGh1Yi5jb20vbXlhcHAiCgkJfQp9"            // metadata
     // , { value: ethers.parseEther("1000.0")});
     // await appTx.wait();
-    console.log("App created successfully!");
+    // console.log("App created successfully!");
 }
 
 main()

@@ -19,6 +19,7 @@ contract SubnetRegistry is Ownable {
         string name;
         uint256 nftId;
         address owner;
+        address operator; // New operator field
         string peerAddr;
         string metadata;
         uint256 startTime;
@@ -36,8 +37,8 @@ contract SubnetRegistry is Ownable {
     mapping(address => bool) public scoreUpdaters;
 
     // Events
-    event SubnetRegistered(uint256 indexed subnetId, address indexed owner, uint256 nftId, string peerAddr, string metadata);
-    event SubnetDeregistered(uint256 indexed subnetId, address indexed owner, string peerAddr, uint256 uptime);
+    event SubnetRegistered(uint256 indexed subnetId, address indexed owner, uint256 nftId, string peerAddr, string metadata, address operator);
+    event SubnetDeregistered(uint256 indexed subnetId);
     event RewardClaimed(uint256 indexed subnetId, address indexed owner, string peerAddr, uint256 amount);
     event RewardPerSecondUpdated(uint256 oldRewardPerSecond, uint256 newRewardPerSecond);
     // Event for trust score updates
@@ -46,6 +47,9 @@ contract SubnetRegistry is Ownable {
     event ScoreUpdaterAdded(address indexed updater);
     // Event emitted when an address is revoked from the updater role
     event ScoreUpdaterRemoved(address indexed updater);
+    event SubnetOperatorUpdated(uint256 indexed subnetId, address indexed newOperator);
+    event SubnetMetadataUpdated(uint256 indexed subnetId, string newMetadata);
+    event SubnetNameUpdated(uint256 indexed subnetId, string newName);
 
     /**
     * @dev Modifier to restrict access to authorized score updaters.
@@ -117,10 +121,12 @@ contract SubnetRegistry is Ownable {
      * @param nftId ID of the NFT to lock
      * @param peerAddr Peer address (e.g., PeerID or multiaddress)
      * @param metadata Metadata for the subnet
+     * @param operator Address of the operator
      */
-    function registerSubnet(uint256 nftId, string memory peerAddr, string memory name, string memory metadata) external {
+    function registerSubnet(uint256 nftId, string memory peerAddr, string memory name, string memory metadata, address operator) external {
         require(peerToSubnet[peerAddr] == 0, "Peer address already registered");
         require(IERC721(nftContract).ownerOf(nftId) == msg.sender, "Caller is not the NFT owner");
+        require(operator != address(0), "Invalid operator address");
 
         // Transfer the NFT to this contract
         IERC721(nftContract).transferFrom(msg.sender, address(this), nftId);
@@ -131,6 +137,7 @@ contract SubnetRegistry is Ownable {
             metadata: metadata,
             nftId: nftId,
             owner: msg.sender,
+            operator: operator, // Set the operator
             peerAddr: peerAddr,
             startTime: block.timestamp,
             totalUptime: 0,
@@ -141,7 +148,7 @@ contract SubnetRegistry is Ownable {
 
         peerToSubnet[peerAddr] = subnetCounter;
 
-        emit SubnetRegistered(subnetCounter, msg.sender, nftId, peerAddr, metadata);
+        emit SubnetRegistered(subnetCounter, msg.sender, nftId, peerAddr, metadata, operator);
     }
 
     /**
@@ -151,14 +158,20 @@ contract SubnetRegistry is Ownable {
     function deregisterSubnet(uint256 subnetId) external {
         Subnet storage subnet = subnets[subnetId];
         require(subnet.active, "Subnet is not active");
-        require(subnet.owner == msg.sender, "Caller is not the owner");
+        require(subnet.owner == msg.sender || subnet.operator == msg.sender, "Caller is not the owner or operator");
 
         subnet.active = false;
 
         // Transfer the NFT back to the owner
         IERC721(nftContract).transferFrom(address(this), subnet.owner, subnet.nftId);
 
-        emit SubnetDeregistered(subnetId, subnet.owner, subnet.peerAddr, subnet.totalUptime);
+        // Remove the mapping with the peer address
+        delete peerToSubnet[subnet.peerAddr];
+
+        // Remove the subnet information
+        delete subnets[subnetId];
+
+        emit SubnetDeregistered(subnetId);
     }
 
     /**
@@ -246,5 +259,48 @@ contract SubnetRegistry is Ownable {
 
         // Return the subnet details
         return subnet;
+    }
+
+    /**
+     * @dev Update the operator of a subnet.
+     * @param subnetId ID of the subnet
+     * @param newOperator Address of the new operator
+     */
+    function updateSubnetOperator(uint256 subnetId, address newOperator) external {
+        Subnet storage subnet = subnets[subnetId];
+        require(subnet.owner == msg.sender, "Caller is not the owner");
+        require(newOperator != address(0), "Invalid operator address");
+
+        subnet.operator = newOperator;
+
+        emit SubnetOperatorUpdated(subnetId, newOperator);
+    }
+
+    /**
+     * @dev Update the metadata of a subnet.
+     * @param subnetId ID of the subnet
+     * @param newMetadata New metadata for the subnet
+     */
+    function updateSubnetMetadata(uint256 subnetId, string memory newMetadata) external {
+        Subnet storage subnet = subnets[subnetId];
+        require(subnet.owner == msg.sender || subnet.operator == msg.sender, "Caller is not the owner or operator");
+
+        subnet.metadata = newMetadata;
+
+        emit SubnetMetadataUpdated(subnetId, newMetadata);
+    }
+
+    /**
+     * @dev Update the name of a subnet.
+     * @param subnetId ID of the subnet
+     * @param newName New name for the subnet
+     */
+    function updateSubnetName(uint256 subnetId, string memory newName) external {
+        Subnet storage subnet = subnets[subnetId];
+        require(subnet.owner == msg.sender || subnet.operator == msg.sender, "Caller is not the owner or operator");
+
+        subnet.name = newName;
+
+        emit SubnetNameUpdated(subnetId, newName);
     }
 }

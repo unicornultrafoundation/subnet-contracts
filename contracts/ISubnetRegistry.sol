@@ -6,6 +6,7 @@ interface ISubnetRegistry {
         string name;
         uint256 nftId;
         address owner;
+        address operator; // New operator field
         string peerAddr;
         string metadata;
         uint256 startTime;

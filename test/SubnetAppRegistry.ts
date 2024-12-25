@@ -9,6 +9,31 @@ describe("SubnetAppRegistry", function () {
         owner: HardhatEthersSigner, treasury: HardhatEthersSigner,
         addr1: HardhatEthersSigner;
 
+    async function createApp() {
+        const appBudget = ethers.parseEther("10"); // 10 ETH
+        const operator = owner.address;
+        await subnetAppRegistry.createApp(
+            "TestApp",
+            "TAPP",
+            "peer123",
+            appBudget,
+            10, // maxNodes
+            2, // minCpu
+            1, // minGpu
+            4, // minMemory
+            10, // minUploadBandwidth
+            20, // minDownloadBandwidth
+            1, // pricePerCpu
+            1, // pricePerGpu
+            1, // pricePerMemoryGB
+            1, // pricePerStorageGB
+            1, // pricePerBandwidthGB
+            "metadata", // PaymentMethod.DURATION
+            operator,
+            { value: appBudget }
+        );
+    }
+
     beforeEach(async function () {
         [owner, treasury, addr1] = await ethers.getSigners();
 
@@ -27,7 +52,7 @@ describe("SubnetAppRegistry", function () {
         );
 
         await testNFT.approve(await subnetRegistry.getAddress(), 1)
-        await subnetRegistry.registerSubnet(1, "0x", "NAME", "metadata")
+        await subnetRegistry.registerSubnet(1, "0x", "NAME", "metadata", owner.address)
 
 
         // Deploy SubnetAppRegistry Contract
@@ -48,6 +73,7 @@ describe("SubnetAppRegistry", function () {
         const appPeerId = "peer123";
         const appBudget = ethers.parseEther("10"); // 10 ETH
         const maxNodes = 10;
+        const operator = owner.address;
 
         // Create an application
         await subnetAppRegistry.createApp(
@@ -67,6 +93,7 @@ describe("SubnetAppRegistry", function () {
             1, // pricePerStorageGB
             1, // pricePerBandwidthGB
             "metadata",
+            operator,
             { value: appBudget }
         );
 
@@ -78,10 +105,12 @@ describe("SubnetAppRegistry", function () {
         expect(app.budget).to.equal(appBudget);
         expect(app.maxNodes).to.equal(maxNodes);
         expect(app.owner).to.equal(owner.address);
+        expect(app.operator).to.equal(operator);
     });
 
     it("should not allow creating an application with duplicate symbols", async function () {
         const appSymbol = "DUPL";
+        const operator = owner.address;
 
         // Create the first application
         await subnetAppRegistry.createApp(
@@ -91,6 +120,7 @@ describe("SubnetAppRegistry", function () {
             ethers.parseEther("5"),
             5,
             2, 1, 4, 10, 20, 1, 1, 1, 1, 1,  "metadata",
+            operator,
             { value: ethers.parseEther("5") }
         );
 
@@ -103,6 +133,7 @@ describe("SubnetAppRegistry", function () {
                 ethers.parseEther("5"),
                 5,
                 2, 1, 4, 10, 20, 1, 1, 1, 1, 1,  "metadata",
+                operator,
                 { value: ethers.parseEther("5") }
             )
         ).to.be.revertedWith("Symbol already exists");
@@ -112,6 +143,7 @@ describe("SubnetAppRegistry", function () {
         const appName = "EmitApp";
         const appSymbol = "EAPP";
         const appBudget = ethers.parseEther("5");
+        const operator = owner.address;
 
         // Expect the event
         await expect(
@@ -122,6 +154,7 @@ describe("SubnetAppRegistry", function () {
                 appBudget,
                 5,
                 2, 1, 4, 10, 20, 1, 1, 1, 1, 1,  "metadata",
+                operator,
                 { value: appBudget }
             )
         )
@@ -170,6 +203,7 @@ describe("SubnetAppRegistry", function () {
     it("should register a node to an application successfully", async function () {
         // Mock application creation
         const appBudget = ethers.parseEther("10");
+        const operator = owner.address;
         await subnetAppRegistry.createApp(
             "TestApp",
             "TAPP",
@@ -187,6 +221,7 @@ describe("SubnetAppRegistry", function () {
             1, // pricePerStorageGB
             1, // pricePerBandwidthGB
             "metadata", // PaymentMethod.DURATION
+            operator,
             { value: appBudget }
         );
 
@@ -211,6 +246,7 @@ describe("SubnetAppRegistry", function () {
 
     it("should revert if the app has reached the maximum node limit", async function () {
         const appBudget = ethers.parseEther("10");
+        const operator = owner.address;
         await subnetAppRegistry.createApp(
             "TestApp",
             "TAPP",
@@ -228,6 +264,7 @@ describe("SubnetAppRegistry", function () {
             1, // pricePerStorageGB
             1, // pricePerBandwidthGB
             "metadata", // PaymentMethod.DURATION
+            operator,
             { value: appBudget }
         );
 
@@ -245,6 +282,7 @@ describe("SubnetAppRegistry", function () {
 
     it("should revert if the subnet is inactive", async function () {
         const appBudget = ethers.parseEther("10");
+        const operator = owner.address;
         await subnetAppRegistry.createApp(
             "TestApp",
             "TAPP",
@@ -262,6 +300,7 @@ describe("SubnetAppRegistry", function () {
             1, // pricePerStorageGB
             1, // pricePerBandwidthGB
             "metadata", // PaymentMethod.DURATION
+            operator,
             { value: appBudget }
         );
 
@@ -271,8 +310,41 @@ describe("SubnetAppRegistry", function () {
 
         // Subnet is not active
         await expect(subnetAppRegistry.registerNode(subnetId, 1)).to.be.revertedWith(
-            "Subnet is inactive"
+            "Subnet does not exist"
         );
+    });
+
+    it("should allow updating the metadata separately", async function () {
+        const newMetadata = "new metadata";
+        await createApp();
+        // Update the metadata
+        await subnetAppRegistry.connect(owner).updateMetadata(1, newMetadata);
+
+        // Check if updated
+        const app = await subnetAppRegistry.apps(1);
+        expect(app.metadata).to.equal(newMetadata);
+    });
+
+    it("should allow updating the name separately", async function () {
+        const newName = "NewAppName";
+        await createApp();
+        // Update the name
+        await subnetAppRegistry.connect(owner).updateName(1, newName);
+
+        // Check if updated
+        const app = await subnetAppRegistry.apps(1);
+        expect(app.name).to.equal(newName);
+    });
+
+    it("should allow updating the operator separately", async function () {
+        const newOperator = addr1.address;
+        await createApp();
+        // Update the operator
+        await subnetAppRegistry.connect(owner).updateOperator(1, newOperator);
+
+        // Check if updated
+        const app = await subnetAppRegistry.apps(1);
+        expect(app.operator).to.equal(newOperator);
     });
 
     describe("ClaimReward", () => {
@@ -282,6 +354,7 @@ describe("SubnetAppRegistry", function () {
             const appBudget = ethers.parseEther("100"); // 100 ether budget
             [owner, treasury] = await ethers.getSigners();
             // Mock application creation
+            const operator = owner.address;
             await subnetAppRegistry.createApp(
                 "TestApp",
                 "TAPP",
@@ -299,6 +372,7 @@ describe("SubnetAppRegistry", function () {
                 1, // pricePerStorageGB
                 1, // pricePerBandwidthGB
                 "metadata", // PaymentMethod.DURATION
+                operator,
                 { value: appBudget }
             );
 
@@ -396,7 +470,7 @@ describe("SubnetAppRegistry", function () {
                     appId,
                     10, 5, 10, 20, 1e9, 2e9, 3600, invalidSignature
                 )
-            ).to.be.revertedWith("Invalid app owner signature");
+            ).to.be.revertedWith("Invalid app owner or operator signature");
         });
 
         it("should revert if the hash is already used", async function () {

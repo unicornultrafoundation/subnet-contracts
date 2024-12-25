@@ -39,30 +39,103 @@ describe("SubnetRegistry Contract", function () {
     await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
 
     await expect(
-      subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1")
+      subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1", addr1.address)
     )
       .to.emit(subnetRegistry, "SubnetRegistered")
-      .withArgs(1, addr1.address, nftId, "peer1", "metadata1");
+      .withArgs(1, addr1.address, nftId, "peer1", "metadata1", addr1.address);
 
     const subnet = await subnetRegistry.getSubnet(1);
     expect(subnet.owner).to.equal(addr1.address);
+    expect(subnet.operator).to.equal(addr1.address);
     expect(subnet.nftId).to.equal(nftId);
     expect(subnet.peerAddr).to.equal("peer1");
     expect(subnet.active).to.be.true;
   });
 
+  it("Should register a subnet with an operator", async function () {
+    await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
+
+    await expect(
+      subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1", addr2.address)
+    )
+      .to.emit(subnetRegistry, "SubnetRegistered")
+      .withArgs(1, addr1.address, nftId, "peer1", "metadata1", addr2.address);
+
+    const subnet = await subnetRegistry.getSubnet(1);
+    expect(subnet.owner).to.equal(addr1.address);
+    expect(subnet.operator).to.equal(addr2.address);
+    expect(subnet.nftId).to.equal(nftId);
+    expect(subnet.peerAddr).to.equal("peer1");
+    expect(subnet.active).to.be.true;
+  });
+
+  it("Should update the operator of a subnet", async function () {
+    await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
+    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1", addr2.address);
+
+    await expect(
+      subnetRegistry.connect(addr1).updateSubnetOperator(1, updater.address)
+    )
+      .to.emit(subnetRegistry, "SubnetOperatorUpdated")
+      .withArgs(1, updater.address);
+
+    const subnet = await subnetRegistry.getSubnet(1);
+    expect(subnet.operator).to.equal(updater.address);
+  });
+
+  it("Should update the metadata of a subnet by operator", async function () {
+    await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
+    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1", addr2.address);
+
+    await expect(
+      subnetRegistry.connect(addr2).updateSubnetMetadata(1, "newMetadata")
+    )
+      .to.emit(subnetRegistry, "SubnetMetadataUpdated")
+      .withArgs(1, "newMetadata");
+
+    const subnet = await subnetRegistry.getSubnet(1);
+    expect(subnet.metadata).to.equal("newMetadata");
+  });
+
+  it("Should update the name of a subnet by operator", async function () {
+    await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
+    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1", addr2.address);
+
+    await expect(
+      subnetRegistry.connect(addr2).updateSubnetName(1, "newName")
+    )
+      .to.emit(subnetRegistry, "SubnetNameUpdated")
+      .withArgs(1, "newName");
+
+    const subnet = await subnetRegistry.getSubnet(1);
+    expect(subnet.name).to.equal("newName");
+  });
+
+  it("Should deregister a subnet by operator", async function () {
+    await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
+    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1", addr2.address);
+
+    await expect(
+      subnetRegistry.connect(addr2).deregisterSubnet(1)
+    )
+      .to.emit(subnetRegistry, "SubnetDeregistered")
+      .withArgs(1);
+
+      await expect(subnetRegistry.getSubnet(1)).to.be.revertedWith("Subnet does not exist");
+    expect(await nftContract.ownerOf(nftId)).to.equal(addr1.address);
+  });
+
   it("Should deregister a subnet", async function () {
     await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
-    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1","metadata1");
+    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1","metadata1", addr1.address);
 
     await expect(
       subnetRegistry.connect(addr1).deregisterSubnet(1)
     )
       .to.emit(subnetRegistry, "SubnetDeregistered")
-      .withArgs(1, addr1.address, "peer1", 0);
+      .withArgs(1);
 
-    const subnet = await subnetRegistry.getSubnet(1);
-    expect(subnet.active).to.be.false;
+    await expect(subnetRegistry.getSubnet(1)).to.be.revertedWith("Subnet does not exist");
     expect(await nftContract.ownerOf(nftId)).to.equal(addr1.address);
   });
 
@@ -93,7 +166,7 @@ describe("SubnetRegistry Contract", function () {
 
   it("Should update trust scores", async function () {
     await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
-    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1");
+    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata1", addr1.address);
 
     await subnetRegistry.connect(owner).addScoreUpdater(updater.address);
 
@@ -115,7 +188,7 @@ describe("SubnetRegistry Contract", function () {
 
   it("Should claim rewards", async function () {
     await nftContract.connect(addr1).approve(await subnetRegistry.getAddress(), nftId);
-    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata");
+    await subnetRegistry.connect(addr1).registerSubnet(nftId, "peer1", "node1", "metadata", addr1.address);
 
     const tree = StandardMerkleTree.of([
         [1, 100]

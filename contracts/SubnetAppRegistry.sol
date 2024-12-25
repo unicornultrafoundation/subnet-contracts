@@ -20,6 +20,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
     struct App {
         string peerId;
         address owner;                // Application owner
+        address operator;             // Application operator
         string name;                  // Application name
         string symbol;                // Unique symbol
         uint256 budget;               // Total budget for the app
@@ -145,6 +146,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
     * @param pricePerStorageGB The payment per GB of storage used.
     * @param pricePerBandwidthGB The payment per GB of bandwidth used.
     * @param metadata Metadata
+    * @param operator The operator of the application.
     */
     function createApp(
         string memory name,
@@ -162,7 +164,8 @@ contract SubnetAppRegistry is EIP712, Ownable {
         uint256 pricePerMemoryGB,
         uint256 pricePerStorageGB,
         uint256 pricePerBandwidthGB,
-        string memory metadata
+        string memory metadata,
+        address operator
     ) public payable {
         require(msg.value >= budget, "Insufficient funds for the job");
         require(maxNodes > 0, "Max nodes must be greater than zero");
@@ -173,6 +176,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         App storage app = apps[appCount];
         app.peerId = peerId;
         app.owner = msg.sender;
+        app.operator = operator;
         app.name = name;
         app.symbol = symbol;
         app.budget = budget;
@@ -199,7 +203,6 @@ contract SubnetAppRegistry is EIP712, Ownable {
     * Only the owner of the application can perform the update.
     *
     * @param appId The ID of the application to update.
-    * @param name The new name of the application.
     * @param peerId The new unique identifier for the application's network peer.
     * @param maxNodes The new maximum number of nodes that can participate in the application.
     * @param minCpu The new minimum CPU requirement for participating nodes.
@@ -212,11 +215,9 @@ contract SubnetAppRegistry is EIP712, Ownable {
     * @param pricePerMemoryGB The new payment per GB of memory used.
     * @param pricePerStorageGB The new payment per GB of storage used.
     * @param pricePerBandwidthGB The new payment per GB of bandwidth used.
-    * @param metadata The new metadata.
     */
     function updateApp(
         uint256 appId,
-        string memory name,
         string memory peerId,
         uint256 maxNodes,
         uint256 minCpu,
@@ -228,8 +229,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         uint256 pricePerGpu,
         uint256 pricePerMemoryGB,
         uint256 pricePerStorageGB,
-        uint256 pricePerBandwidthGB,
-        string memory metadata
+        uint256 pricePerBandwidthGB
     ) public {
         App storage app = apps[appId];
 
@@ -237,7 +237,6 @@ contract SubnetAppRegistry is EIP712, Ownable {
         require(appId > 0 && appId <= appCount, "Application ID is invalid");
         require(maxNodes > 0, "Max nodes must be greater than zero");
 
-        app.name = name;
         app.peerId = peerId;
         app.maxNodes = maxNodes;
         app.minCpu = minCpu;
@@ -250,11 +249,62 @@ contract SubnetAppRegistry is EIP712, Ownable {
         app.pricePerMemoryGB = pricePerMemoryGB;
         app.pricePerStorageGB = pricePerStorageGB;
         app.pricePerBandwidthGB = pricePerBandwidthGB;
+
+        emit AppUpdated(appId);
+    }
+
+    /**
+    * @dev Updates the metadata of an existing application.
+    * Only the owner of the application can perform the update.
+    *
+    * @param appId The ID of the application to update.
+    * @param metadata The new metadata.
+    */
+    function updateMetadata(uint256 appId, string memory metadata) public {
+        App storage app = apps[appId];
+
+        require(app.owner == msg.sender, "Only the owner can update the metadata");
+        require(appId > 0 && appId <= appCount, "Application ID is invalid");
+
         app.metadata = metadata;
 
-        emit AppUpdated(
-            appId
-        );
+        emit AppUpdated(appId);
+    }
+
+    /**
+    * @dev Updates the name of an existing application.
+    * Only the owner of the application can perform the update.
+    *
+    * @param appId The ID of the application to update.
+    * @param name The new name.
+    */
+    function updateName(uint256 appId, string memory name) public {
+        App storage app = apps[appId];
+
+        require(app.owner == msg.sender, "Only the owner can update the name");
+        require(appId > 0 && appId <= appCount, "Application ID is invalid");
+
+        app.name = name;
+
+        emit AppUpdated(appId);
+    }
+
+    /**
+    * @dev Updates the operator of an existing application.
+    * Only the owner of the application can perform the update.
+    *
+    * @param appId The ID of the application to update.
+    * @param operator The new operator.
+    */
+    function updateOperator(uint256 appId, address operator) public {
+        App storage app = apps[appId];
+
+        require(app.owner == msg.sender, "Only the owner can update the operator");
+        require(appId > 0 && appId <= appCount, "Application ID is invalid");
+
+        app.operator = operator;
+
+        emit AppUpdated(appId);
     }
 
     /**
@@ -305,7 +355,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
     * @param usedUploadBytes The total uploaded data (in bytes) reported by the node.
     * @param usedDownloadBytes The total downloaded data (in bytes) reported by the node.
     * @param duration The duration (in seconds) the node worked.
-    * @param signature The EIP-712 signature from the application owner validating the usage data.
+    * @param signature The EIP-712 signature from the application owner or operator validating the usage data.
     */
     function claimReward(
         uint256 subnetId,
@@ -347,7 +397,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         usedMessageHashes[structHash] = true;
 
         address signer = ECDSA.recover(structHash, signature);
-        require(signer == app.owner, "Invalid app owner signature");
+        require(signer == app.owner || signer == app.operator, "Invalid app owner or operator signature");
 
         // Retrieve and calculate new usage
         AppNode storage appNode = appNodes[appId][subnetId];
