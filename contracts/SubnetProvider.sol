@@ -27,8 +27,6 @@ contract SubnetProvider is ERC721 {
      * @param _metadata Additional metadata for the provider.
      */
     function registerProvider(string memory _providerName, string memory _metadata) public {
-        require(balanceOf(msg.sender) == 0, "Provider already registered");
-
         _tokenIds++;
         uint256 newItemId = _tokenIds;
         _mint(msg.sender, newItemId);
