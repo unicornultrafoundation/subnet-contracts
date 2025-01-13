@@ -2,9 +2,8 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 
-contract SubnetProvider is ERC721URIStorage {
+contract SubnetProvider is ERC721 {
     uint256 private _tokenIds;
 
     struct Provider {
@@ -25,16 +24,14 @@ contract SubnetProvider is ERC721URIStorage {
     /**
      * @dev Registers a new provider and mints an NFT.
      * @param _providerName Name of the provider.
-     * @param tokenURI URI of the token metadata.
      * @param _metadata Additional metadata for the provider.
      */
-    function registerProvider(string memory _providerName, string memory tokenURI, string memory _metadata) public {
+    function registerProvider(string memory _providerName, string memory _metadata) public {
         require(balanceOf(msg.sender) == 0, "Provider already registered");
 
         _tokenIds++;
         uint256 newItemId = _tokenIds;
         _mint(msg.sender, newItemId);
-        _setTokenURI(newItemId, tokenURI);
 
         providers[newItemId] = Provider({
             tokenId: newItemId,
@@ -50,17 +47,14 @@ contract SubnetProvider is ERC721URIStorage {
      * @dev Updates the provider information.
      * @param tokenId ID of the token.
      * @param _providerName New name of the provider.
-     * @param tokenURI New URI of the token metadata.
      * @param _metadata New additional metadata for the provider.
      */
-    function updateProvider(uint256 tokenId, string memory _providerName, string memory tokenURI, string memory _metadata) public {
+    function updateProvider(uint256 tokenId, string memory _providerName, string memory _metadata) public {
         require(ownerOf(tokenId) == msg.sender, "Not the owner of this token");
 
         Provider storage provider = providers[tokenId];
         provider.providerName = _providerName;
         provider.metadata = _metadata;
-
-        _setTokenURI(tokenId, tokenURI);
 
         emit ProviderUpdated(tokenId, _providerName, _metadata);
     }
