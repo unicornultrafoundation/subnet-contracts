@@ -14,17 +14,22 @@ contract SubnetProvider is ERC721URIStorage {
     }
 
     mapping(uint256 => Provider) public providers;
-    mapping(address => uint256) public providerTokens;
-    address[] public providerList;
 
     event ProviderRegistered(address providerAddress, uint256 tokenId, string providerName, string metadata);
     event NFTMinted(address providerAddress, uint256 tokenId);
     event ProviderUpdated(uint256 tokenId, string providerName, string metadata);
+    event ProviderDeleted(uint256 tokenId);
 
     constructor() ERC721("SubnetProviderNFT", "SPN") {}
 
+    /**
+     * @dev Registers a new provider and mints an NFT.
+     * @param _providerName Name of the provider.
+     * @param tokenURI URI of the token metadata.
+     * @param _metadata Additional metadata for the provider.
+     */
     function registerProvider(string memory _providerName, string memory tokenURI, string memory _metadata) public {
-        require(providerTokens[msg.sender] == 0, "Provider already registered");
+        require(balanceOf(msg.sender) == 0, "Provider already registered");
 
         _tokenIds++;
         uint256 newItemId = _tokenIds;
@@ -37,16 +42,19 @@ contract SubnetProvider is ERC721URIStorage {
             metadata: _metadata
         });
 
-        providerTokens[msg.sender] = newItemId;
-        providerList.push(msg.sender);
-
         emit ProviderRegistered(msg.sender, newItemId, _providerName, _metadata);
         emit NFTMinted(msg.sender, newItemId);
     }
 
-    function updateProvider(string memory _providerName, string memory tokenURI, string memory _metadata) public {
-        uint256 tokenId = providerTokens[msg.sender];
-        require(tokenId != 0, "Provider not registered");
+    /**
+     * @dev Updates the provider information.
+     * @param tokenId ID of the token.
+     * @param _providerName New name of the provider.
+     * @param tokenURI New URI of the token metadata.
+     * @param _metadata New additional metadata for the provider.
+     */
+    function updateProvider(uint256 tokenId, string memory _providerName, string memory tokenURI, string memory _metadata) public {
+        require(ownerOf(tokenId) == msg.sender, "Not the owner of this token");
 
         Provider storage provider = providers[tokenId];
         provider.providerName = _providerName;
@@ -57,16 +65,25 @@ contract SubnetProvider is ERC721URIStorage {
         emit ProviderUpdated(tokenId, _providerName, _metadata);
     }
 
-    function getProvider(uint256 _tokenId) public view returns (Provider memory) {
-        return providers[_tokenId];
+    /**
+     * @dev Deletes the provider information and burns the NFT.
+     * @param tokenId ID of the token.
+     */
+    function deleteProvider(uint256 tokenId) public {
+        require(ownerOf(tokenId) == msg.sender, "Not the owner of this token");
+
+        _burn(tokenId);
+        delete providers[tokenId];
+
+        emit ProviderDeleted(tokenId);
     }
 
-    function getAllProviders() public view returns (Provider[] memory) {
-        Provider[] memory allProviders = new Provider[](providerList.length);
-        for (uint256 i = 0; i < providerList.length; i++) {
-            uint256 tokenId = providerTokens[providerList[i]];
-            allProviders[i] = providers[tokenId];
-        }
-        return allProviders;
+    /**
+     * @dev Returns the provider information for a given token ID.
+     * @param _tokenId ID of the token.
+     * @return Provider information.
+     */
+    function getProvider(uint256 _tokenId) public view returns (Provider memory) {
+        return providers[_tokenId];
     }
 }
