@@ -5,13 +5,16 @@ import "./SubnetProvider.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 /**
- * @title SubnetAppRegistry
+ * @title SubnetAppStore
  * @dev Registry to manage applications running on subnets and reward nodes based on resource usage.
  * Implements EIP-712 for structured data signing and Ownable for admin functionalities.
  */
-contract SubnetAppRegistry is EIP712, Ownable {
+contract SubnetAppStore is EIP712, Ownable {
+    using SafeERC20 for IERC20;
+
     // EIP-712 Domain Separator constants
     string private constant SIGNING_DOMAIN = "SubnetAppRegistry";
     string private constant SIGNATURE_VERSION = "1";
@@ -38,6 +41,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
         uint256 pricePerStorageGB; // Price per GB of storage
         uint256 pricePerBandwidthGB; // Price per GB of bandwidth
         string metadata; // Metadata
+        address paymentToken; // ERC20 token for payment
     }
 
     // Struct for tracking node-specific resource usage
@@ -97,6 +101,10 @@ contract SubnetAppRegistry is EIP712, Ownable {
         uint256 indexed providerId,
         uint256 reward
     );
+    event BudgetDeposited(
+        uint256 indexed appId,
+        uint256 amount
+    );
 
     /**
      * @dev Emitted when an application is updated.
@@ -150,7 +158,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
      * @param name The name of the application.
      * @param symbol A unique symbol representing the application.
      * @param peerId A unique identifier for the application's network peer.
-     * @param budget The total budget allocated for the application (must be sent in wei).
+     * @param budget The total budget allocated for the application.
      * @param maxNodes The maximum number of nodes that can participate in the application.
      * @param minCpu The minimum CPU requirement for participating nodes.
      * @param minGpu The minimum GPU requirement for participating nodes.
@@ -164,6 +172,7 @@ contract SubnetAppRegistry is EIP712, Ownable {
      * @param pricePerBandwidthGB The payment per GB of bandwidth used.
      * @param metadata Metadata
      * @param operator The operator of the application.
+     * @param paymentToken The ERC20 token address for payment.
      */
     function createApp(
         string memory name,
@@ -182,9 +191,9 @@ contract SubnetAppRegistry is EIP712, Ownable {
         uint256 pricePerStorageGB,
         uint256 pricePerBandwidthGB,
         string memory metadata,
-        address operator
-    ) public payable {
-        require(msg.value >= budget, "Insufficient funds for the job");
+        address operator,
+        address paymentToken
+    ) public {
         require(maxNodes > 0, "Max nodes must be greater than zero");
         require(symbolToAppId[symbol] == 0, "Symbol already exists");
 
@@ -209,10 +218,38 @@ contract SubnetAppRegistry is EIP712, Ownable {
         app.pricePerStorageGB = pricePerStorageGB;
         app.pricePerBandwidthGB = pricePerBandwidthGB;
         app.metadata = metadata;
+        app.paymentToken = paymentToken;
 
         symbolToAppId[symbol] = appCount;
 
+        // Transfer the budget in ERC20 tokens from the caller to the contract
+        IERC20(paymentToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            budget
+        );
+
         emit AppCreated(appCount, name, symbol, msg.sender, budget);
+    }
+
+    /**
+     * @dev Deposits additional budget to an existing application.
+     * @param appId The ID of the application to deposit budget to.
+     * @param amount The amount of budget to deposit.
+     */
+    function deposit(uint256 appId, uint256 amount) external {
+        App storage app = apps[appId];
+
+        require(app.owner == msg.sender, "Only the owner can deposit budget");
+        require(appId > 0 && appId <= appCount, "Application ID is invalid");
+
+        // Transfer the additional budget in ERC20 tokens from the caller to the contract
+        IERC20(app.paymentToken).safeTransferFrom(msg.sender, address(this), amount);
+
+        // Update the app's budget
+        app.budget += amount;
+
+        emit BudgetDeposited(appId, amount);
     }
 
     /**
@@ -471,6 +508,10 @@ contract SubnetAppRegistry is EIP712, Ownable {
             "Claim not yet unlocked"
         );
 
+        address owner = subnetProvider.ownerOf(providerId);
+        // Ensure the caller is the owner of the NFT
+        require(owner == msg.sender, "Caller is not the owner of the NFT");
+
         // Update the last claim time
         deployment.lastClaimTime = block.timestamp;
 
@@ -478,8 +519,8 @@ contract SubnetAppRegistry is EIP712, Ownable {
         uint256 fee = (reward * feeRate) / 1000;
         uint256 netReward = reward - fee;
 
-        payable(treasury).transfer(fee);
-        payable(subnetProvider.ownerOf(providerId)).transfer(netReward);
+        IERC20(apps[appId].paymentToken).safeTransfer(treasury, fee);
+        IERC20(apps[appId].paymentToken).safeTransfer(owner, netReward);
 
         // Reset pending reward
         deployment.pendingReward = 0;
