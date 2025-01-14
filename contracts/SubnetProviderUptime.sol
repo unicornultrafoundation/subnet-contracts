@@ -91,11 +91,15 @@ contract SubnetProviderUptime is Ownable {
         require(totalUptime > uptime.claimedUptime, "No new uptime to report");
 
         // Validate Merkle proof
-        bytes32 leaf = keccak256(abi.encodePacked(tokenId, totalUptime));
+        bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(tokenId, totalUptime))));
         require(MerkleProof.verify(proof, merkleRoot, leaf), "Invalid Merkle proof");
 
         uint256 newUptime = totalUptime - uptime.claimedUptime;
         uint256 reward = newUptime * rewardPerSecond;
+
+        if (uptime.lastClaimTime  == 0) {
+            uptime.lastClaimTime  = block.timestamp;
+        }
 
         // Update claimed uptime and pending reward
         uptime.claimedUptime = totalUptime;
