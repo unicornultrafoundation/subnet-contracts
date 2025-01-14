@@ -262,6 +262,7 @@ describe("SubnetAppStore", function () {
         beforeEach(async function () {
             await createApp();
             await subnetProvider.registerProvider("provider1", "metadata1");
+            await rewardToken.mint(subnetAppStore.getAddress(), ethers.parseEther("100"));
         });
 
         it("should allow a node to claim a reward successfully", async function () {
@@ -352,7 +353,7 @@ describe("SubnetAppStore", function () {
                 usedMemory: 10 * 1e9,
                 usedStorage: 20 * 1e9,
                 usedUploadBytes: 1e9, // 1 GB
-                usedDownloadBytes: 2e9, // 2 GB
+                usedDownloadBytes: 2e9, // 2 GB,
                 duration: 3600 // 1 hour
             };
 
