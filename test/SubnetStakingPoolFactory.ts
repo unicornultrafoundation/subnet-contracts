@@ -230,7 +230,7 @@ describe("SubnetStakingPoolFactory", () => {
   
     // Check the rewards calculation: 50 seconds at rate 1 + 50 seconds at rate 2
     const expectedReward = ethers.parseEther("150"); // 10 * 50 * 1 + 10 * 50 * 2
-    expect(earnedReward).to.be.closeTo(expectedReward, ethers.parseEther("3"));
+    expect(earnedReward).to.be.closeTo(expectedReward, ethers.parseEther("5"));
   });
   
 

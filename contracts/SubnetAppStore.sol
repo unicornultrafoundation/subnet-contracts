@@ -451,6 +451,7 @@ contract SubnetAppStore is EIP712, Ownable {
         // Increment node count if the deployment is new
         if (!deployment.isRegistered) {
             deployment.isRegistered = true;
+            deployment.lastClaimTime = block.timestamp;
             app.nodeCount++;
         }
 
