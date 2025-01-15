@@ -9,15 +9,19 @@ contract SubnetProvider is ERC721 {
     struct Provider {
         uint256 tokenId;
         string providerName;
+        address operator;
+        string website;
         string metadata;
     }
 
     mapping(uint256 => Provider) public providers;
 
-    event ProviderRegistered(address providerAddress, uint256 tokenId, string providerName, string metadata);
+    event ProviderRegistered(address providerAddress, uint256 tokenId, string providerName, string metadata, address operator, string website);
     event NFTMinted(address providerAddress, uint256 tokenId);
-    event ProviderUpdated(uint256 tokenId, string providerName, string metadata);
+    event ProviderUpdated(uint256 tokenId, string providerName, string metadata, address operator, string website);
     event ProviderDeleted(uint256 tokenId);
+    event OperatorUpdated(uint256 tokenId, address operator);
+    event WebsiteUpdated(uint256 tokenId, string website);
 
     constructor() ERC721("SubnetProviderNFT", "SPN") {}
 
@@ -25,8 +29,10 @@ contract SubnetProvider is ERC721 {
      * @dev Registers a new provider and mints an NFT.
      * @param _providerName Name of the provider.
      * @param _metadata Additional metadata for the provider.
+     * @param _operator Address of the operator.
+     * @param _website Website of the provider.
      */
-    function registerProvider(string memory _providerName, string memory _metadata) public {
+    function registerProvider(string memory _providerName, string memory _metadata, address _operator, string memory _website) public returns (uint256) {
         _tokenIds++;
         uint256 newItemId = _tokenIds;
         _mint(msg.sender, newItemId);
@@ -34,11 +40,14 @@ contract SubnetProvider is ERC721 {
         providers[newItemId] = Provider({
             tokenId: newItemId,
             providerName: _providerName,
+            operator: _operator,
+            website: _website,
             metadata: _metadata
         });
 
-        emit ProviderRegistered(msg.sender, newItemId, _providerName, _metadata);
+        emit ProviderRegistered(msg.sender, newItemId, _providerName, _metadata, _operator, _website);
         emit NFTMinted(msg.sender, newItemId);
+        return newItemId;
     }
 
     /**
@@ -46,15 +55,47 @@ contract SubnetProvider is ERC721 {
      * @param tokenId ID of the token.
      * @param _providerName New name of the provider.
      * @param _metadata New additional metadata for the provider.
+     * @param _operator New operator address.
+     * @param _website New website of the provider.
      */
-    function updateProvider(uint256 tokenId, string memory _providerName, string memory _metadata) public {
-        require(ownerOf(tokenId) == msg.sender, "Not the owner of this token");
+    function updateProvider(uint256 tokenId, string memory _providerName, string memory _metadata, address _operator, string memory _website) public {
+        require(ownerOf(tokenId) == msg.sender || providers[tokenId].operator == msg.sender, "Not the owner or operator of this token");
 
         Provider storage provider = providers[tokenId];
         provider.providerName = _providerName;
         provider.metadata = _metadata;
+        provider.operator = _operator;
+        provider.website = _website;
 
-        emit ProviderUpdated(tokenId, _providerName, _metadata);
+        emit ProviderUpdated(tokenId, _providerName, _metadata, _operator, _website);
+    }
+
+    /**
+     * @dev Updates the operator of a provider.
+     * @param tokenId ID of the token.
+     * @param _operator New operator address.
+     */
+    function updateOperator(uint256 tokenId, address _operator) public {
+        require(ownerOf(tokenId) == msg.sender || providers[tokenId].operator == msg.sender, "Not the owner or operator of this token");
+
+        Provider storage provider = providers[tokenId];
+        provider.operator = _operator;
+
+        emit OperatorUpdated(tokenId, _operator);
+    }
+
+    /**
+     * @dev Updates the website of a provider.
+     * @param tokenId ID of the token.
+     * @param _website New website of the provider.
+     */
+    function updateWebsite(uint256 tokenId, string memory _website) public {
+        require(ownerOf(tokenId) == msg.sender || providers[tokenId].operator == msg.sender, "Not the owner or operator of this token");
+
+        Provider storage provider = providers[tokenId];
+        provider.website = _website;
+
+        emit WebsiteUpdated(tokenId, _website);
     }
 
     /**

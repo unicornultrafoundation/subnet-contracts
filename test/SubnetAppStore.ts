@@ -19,7 +19,7 @@ describe("SubnetAppStore", function () {
         const SubnetProviderFactory = await ethers.getContractFactory("SubnetProvider");
         subnetProvider = await SubnetProviderFactory.deploy();
 
-        await subnetProvider.registerProvider("name", "metadata");
+        await subnetProvider.registerProvider("name", "metadata", owner.address, "https://provider.com");
 
         // Deploy SubnetAppStore contract
         const SubnetAppStoreFactory = await ethers.getContractFactory("SubnetAppStore");
@@ -106,7 +106,7 @@ describe("SubnetAppStore", function () {
     describe("Report Usage", function () {
         beforeEach(async function () {
             await createApp();
-            await subnetProvider.registerProvider("provider1", "metadata1");
+            await subnetProvider.registerProvider("provider1", "metadata1", owner.address, "https://provider1.com");
         });
 
         it("should report usage and calculate rewards", async function () {
@@ -261,7 +261,7 @@ describe("SubnetAppStore", function () {
     describe("Claim Reward", function () {
         beforeEach(async function () {
             await createApp();
-            await subnetProvider.registerProvider("provider1", "metadata1");
+            await subnetProvider.registerProvider("provider1", "metadata1", owner.address, "https://provider1.com");
             await rewardToken.mint(subnetAppStore.getAddress(), ethers.parseEther("100"));
         });
 

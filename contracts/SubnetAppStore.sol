@@ -193,7 +193,7 @@ contract SubnetAppStore is EIP712, Ownable {
         string memory metadata,
         address operator,
         address paymentToken
-    ) public {
+    ) public returns (uint256) {
         require(maxNodes > 0, "Max nodes must be greater than zero");
         require(symbolToAppId[symbol] == 0, "Symbol already exists");
 
@@ -230,6 +230,7 @@ contract SubnetAppStore is EIP712, Ownable {
         );
 
         emit AppCreated(appCount, name, symbol, msg.sender, budget);
+        return appCount;
     }
 
     /**

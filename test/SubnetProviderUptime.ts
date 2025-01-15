@@ -60,7 +60,7 @@ describe("SubnetProviderUptime", function () {
     });
 
     it("should report uptime and calculate pending rewards", async function () {
-        await subnetProvider.registerProvider("Provider1", "Metadata1");
+        await subnetProvider.registerProvider("Provider1", "Metadata1", owner, "https://provider1.com");
 
         const tree = StandardMerkleTree.of([
             [1, 100]
@@ -78,7 +78,7 @@ describe("SubnetProviderUptime", function () {
     });
 
     it("should claim rewards successfully", async function () {
-        await subnetProvider.registerProvider("Provider1", "Metadata1");
+        await subnetProvider.registerProvider("Provider1", "Metadata1", owner, "https://provider1.com");
 
         const tree = StandardMerkleTree.of([
             [1, 100]
@@ -105,7 +105,7 @@ describe("SubnetProviderUptime", function () {
     });
 
     it("should revert if the claim is not yet unlocked", async function () {
-        await subnetProvider.registerProvider("Provider1", "Metadata1");
+        await subnetProvider.registerProvider("Provider1", "Metadata1", owner, "https://provider1.com");
 
         const tree = StandardMerkleTree.of([
             [1, 100],
@@ -124,7 +124,7 @@ describe("SubnetProviderUptime", function () {
     });
 
     it("should revert if the Merkle proof is invalid", async function () {
-        await subnetProvider.registerProvider("Provider1", "Metadata1");
+        await subnetProvider.registerProvider("Provider1", "Metadata1", owner, "https://provider1.com");
 
         const tree = StandardMerkleTree.of([
             [1, 100],
