@@ -43,12 +43,6 @@ describe("SubnetAppStore", function () {
             "TAPP",
             "peer123",
             appBudget,
-            10, // maxNodes
-            2, // minCpu
-            1, // minGpu
-            4, // minMemory
-            10, // minUploadBandwidth
-            20, // minDownloadBandwidth
             1, // pricePerCpu
             1, // pricePerGpu
             1, // pricePerMemoryGB
@@ -68,7 +62,6 @@ describe("SubnetAppStore", function () {
         expect(app.symbol).to.equal("TAPP");
         expect(app.peerId).to.equal("peer123");
         expect(app.budget).to.equal(ethers.parseEther("10"));
-        expect(app.maxNodes).to.equal(10);
         expect(app.owner).to.equal(owner.address);
         expect(app.operator).to.equal(owner.address);
     });

@@ -28,12 +28,6 @@ contract SubnetAppStore is EIP712, Ownable {
         string symbol; // Unique symbol
         uint256 budget; // Total budget for the app
         uint256 spentBudget; // Spent budget
-        uint256 maxNodes; // Maximum allowed nodes
-        uint256 minCpu; // Minimum CPU required
-        uint256 minGpu; // Minimum GPU required
-        uint256 minMemory; // Minimum memory required
-        uint256 minUploadBandwidth; // Minimum upload bandwidth required
-        uint256 minDownloadBandwidth; // Minimum download bandwidth required
         uint256 nodeCount; // Current active nodes
         uint256 pricePerCpu; // Price per CPU unit
         uint256 pricePerGpu; // Price per GPU unit
@@ -159,12 +153,6 @@ contract SubnetAppStore is EIP712, Ownable {
      * @param symbol A unique symbol representing the application.
      * @param peerId A unique identifier for the application's network peer.
      * @param budget The total budget allocated for the application.
-     * @param maxNodes The maximum number of nodes that can participate in the application.
-     * @param minCpu The minimum CPU requirement for participating nodes.
-     * @param minGpu The minimum GPU requirement for participating nodes.
-     * @param minMemory The minimum memory requirement (in GB) for participating nodes.
-     * @param minUploadBandwidth The minimum upload bandwidth requirement (in Mbps) for participating nodes.
-     * @param minDownloadBandwidth The minimum download bandwidth requirement (in Mbps) for participating nodes.
      * @param pricePerCpu The payment per unit of CPU used.
      * @param pricePerGpu The payment per unit of GPU used.
      * @param pricePerMemoryGB The payment per GB of memory used.
@@ -179,12 +167,6 @@ contract SubnetAppStore is EIP712, Ownable {
         string memory symbol,
         string memory peerId,
         uint256 budget,
-        uint256 maxNodes,
-        uint256 minCpu,
-        uint256 minGpu,
-        uint256 minMemory,
-        uint256 minUploadBandwidth,
-        uint256 minDownloadBandwidth,
         uint256 pricePerCpu,
         uint256 pricePerGpu,
         uint256 pricePerMemoryGB,
@@ -194,7 +176,6 @@ contract SubnetAppStore is EIP712, Ownable {
         address operator,
         address paymentToken
     ) public returns (uint256) {
-        require(maxNodes > 0, "Max nodes must be greater than zero");
         require(symbolToAppId[symbol] == 0, "Symbol already exists");
 
         appCount++;
@@ -206,12 +187,6 @@ contract SubnetAppStore is EIP712, Ownable {
         app.name = name;
         app.symbol = symbol;
         app.budget = budget;
-        app.maxNodes = maxNodes;
-        app.minCpu = minCpu;
-        app.minGpu = minGpu;
-        app.minMemory = minMemory;
-        app.minUploadBandwidth = minUploadBandwidth;
-        app.minDownloadBandwidth = minDownloadBandwidth;
         app.pricePerCpu = pricePerCpu;
         app.pricePerGpu = pricePerGpu;
         app.pricePerMemoryGB = pricePerMemoryGB;
@@ -258,13 +233,6 @@ contract SubnetAppStore is EIP712, Ownable {
      * Only the owner of the application can perform the update.
      *
      * @param appId The ID of the application to update.
-     * @param peerId The new unique identifier for the application's network peer.
-     * @param maxNodes The new maximum number of nodes that can participate in the application.
-     * @param minCpu The new minimum CPU requirement for participating nodes.
-     * @param minGpu The new minimum GPU requirement for participating nodes.
-     * @param minMemory The new minimum memory requirement (in GB) for participating nodes.
-     * @param minUploadBandwidth The new minimum upload bandwidth requirement (in Mbps) for participating nodes.
-     * @param minDownloadBandwidth The new minimum download bandwidth requirement (in Mbps) for participating nodes.
      * @param pricePerCpu The new payment per unit of CPU used.
      * @param pricePerGpu The new payment per unit of GPU used.
      * @param pricePerMemoryGB The new payment per GB of memory used.
@@ -273,13 +241,6 @@ contract SubnetAppStore is EIP712, Ownable {
      */
     function updateApp(
         uint256 appId,
-        string memory peerId,
-        uint256 maxNodes,
-        uint256 minCpu,
-        uint256 minGpu,
-        uint256 minMemory,
-        uint256 minUploadBandwidth,
-        uint256 minDownloadBandwidth,
         uint256 pricePerCpu,
         uint256 pricePerGpu,
         uint256 pricePerMemoryGB,
@@ -293,15 +254,7 @@ contract SubnetAppStore is EIP712, Ownable {
             "Only the owner can update the application"
         );
         require(appId > 0 && appId <= appCount, "Application ID is invalid");
-        require(maxNodes > 0, "Max nodes must be greater than zero");
 
-        app.peerId = peerId;
-        app.maxNodes = maxNodes;
-        app.minCpu = minCpu;
-        app.minGpu = minGpu;
-        app.minMemory = minMemory;
-        app.minUploadBandwidth = minUploadBandwidth;
-        app.minDownloadBandwidth = minDownloadBandwidth;
         app.pricePerCpu = pricePerCpu;
         app.pricePerGpu = pricePerGpu;
         app.pricePerMemoryGB = pricePerMemoryGB;
@@ -397,8 +350,8 @@ contract SubnetAppStore is EIP712, Ownable {
      * This function calculates rewards for a node by validating its reported resource usage,
      * ensuring it's within the application's budget, and storing the pending rewards.
      *
-     * @param providerId The ID of the provider where the node is registered.
      * @param appId The ID of the application the node is working on.
+     * @param providerId The ID of the provider where the node is registered.
      * @param usedCpu The total CPU usage (in units) reported by the node.
      * @param usedGpu The total GPU usage (in units) reported by the node.
      * @param usedMemory The total memory usage (in GB) reported by the node.
@@ -409,8 +362,8 @@ contract SubnetAppStore is EIP712, Ownable {
      * @param signature The EIP-712 signature from the application owner or operator validating the usage data.
      */
     function reportUsage(
-        uint256 providerId,
         uint256 appId,
+        uint256 providerId,
         uint256 usedCpu,
         uint256 usedGpu,
         uint256 usedMemory,
