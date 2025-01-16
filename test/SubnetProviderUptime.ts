@@ -28,7 +28,9 @@ describe("SubnetProviderUptime", function () {
             owner.address,
             await subnetProvider.getAddress(),
             await rewardToken.getAddress(),
-            ethers.parseEther("0.01") // Reward per second
+            ethers.parseEther("0.01"), // Reward per second
+            "verifierPeerId",
+            addr1.address // Operator
         );
 
         // Mint and approve reward tokens
@@ -52,25 +54,45 @@ describe("SubnetProviderUptime", function () {
             [1, 100]
         ], ["uint256", "uint256"]);
 
-        await expect(subnetProviderUptime.updateMerkleRoot(tree.root))
+        await expect(subnetProviderUptime.connect(addr1).updateMerkleRoot(tree.root))
             .to.emit(subnetProviderUptime, "MerkleRootUpdated")
             .withArgs(ethers.ZeroHash, tree.root);
 
         expect(await subnetProviderUptime.merkleRoot()).to.equal(tree.root);
     });
 
+    it("should update the verifier peer ID", async function () {
+        const newVerifierPeerId = "newVerifierPeerId";
+
+        await expect(subnetProviderUptime.updateVerifierPeerId(newVerifierPeerId))
+            .to.emit(subnetProviderUptime, "VerifierPeerIdUpdated")
+            .withArgs("verifierPeerId", newVerifierPeerId);
+
+        expect(await subnetProviderUptime.verifierPeerId()).to.equal(newVerifierPeerId);
+    });
+
+    it("should update the operator", async function () {
+        const newOperator = addr2.address;
+
+        await expect(subnetProviderUptime.updateOperator(newOperator))
+            .to.emit(subnetProviderUptime, "OperatorUpdated")
+            .withArgs(addr1.address, newOperator);
+
+        expect(await subnetProviderUptime.operator()).to.equal(newOperator);
+    });
+
     it("should report uptime and calculate pending rewards", async function () {
-        await subnetProvider.registerProvider("Provider1", "Metadata1", owner, "https://provider1.com");
+        await subnetProvider.registerProvider("Provider1", "Metadata1", owner.address, "https://provider1.com");
 
         const tree = StandardMerkleTree.of([
             [1, 100]
         ], ["uint256", "uint256"]);
 
-        await subnetProviderUptime.updateMerkleRoot(tree.root);
+        await subnetProviderUptime.connect(addr1).updateMerkleRoot(tree.root);
 
         const proof = tree.getProof(0);
 
-        await subnetProviderUptime.reportUptime(1, 100, proof);
+        await subnetProviderUptime.connect(addr1).reportUptime(1, 100, proof);
 
         const uptime = await subnetProviderUptime.uptimes(1);
         expect(uptime.claimedUptime).to.equal(100);
@@ -78,17 +100,17 @@ describe("SubnetProviderUptime", function () {
     });
 
     it("should claim rewards successfully", async function () {
-        await subnetProvider.registerProvider("Provider1", "Metadata1", owner, "https://provider1.com");
+        await subnetProvider.registerProvider("Provider1", "Metadata1", owner.address, "https://provider1.com");
 
         const tree = StandardMerkleTree.of([
             [1, 100]
         ], ["uint256", "uint256"]);
 
-        await subnetProviderUptime.updateMerkleRoot(tree.root);
+        await subnetProviderUptime.connect(addr1).updateMerkleRoot(tree.root);
 
         const proof = tree.getProof(0);
 
-        await subnetProviderUptime.reportUptime(1, 100, proof);
+        await subnetProviderUptime.connect(addr1).reportUptime(1, 100, proof);
 
         // Simulate 30 days passing
         await ethers.provider.send("evm_increaseTime", [30 * 24 * 60 * 60]);
@@ -105,37 +127,37 @@ describe("SubnetProviderUptime", function () {
     });
 
     it("should revert if the claim is not yet unlocked", async function () {
-        await subnetProvider.registerProvider("Provider1", "Metadata1", owner, "https://provider1.com");
+        await subnetProvider.registerProvider("Provider1", "Metadata1", owner.address, "https://provider1.com");
 
         const tree = StandardMerkleTree.of([
             [1, 100],
-            [2,100],
-            [3,100]
+            [2, 100],
+            [3, 100]
         ], ["uint256", "uint256"]);
 
-        await subnetProviderUptime.updateMerkleRoot(tree.root);
+        await subnetProviderUptime.connect(addr1).updateMerkleRoot(tree.root);
 
         const proof = tree.getProof(0);
 
-        await subnetProviderUptime.reportUptime(1, 100, proof);
+        await subnetProviderUptime.connect(addr1).reportUptime(1, 100, proof);
 
         await expect(subnetProviderUptime.claimReward(1))
             .to.be.revertedWith("Claim not yet unlocked");
     });
 
     it("should revert if the Merkle proof is invalid", async function () {
-        await subnetProvider.registerProvider("Provider1", "Metadata1", owner, "https://provider1.com");
+        await subnetProvider.registerProvider("Provider1", "Metadata1", owner.address, "https://provider1.com");
 
         const tree = StandardMerkleTree.of([
             [1, 100],
-            [2,100],
-            [3,100]
+            [2, 100],
+            [3, 100]
         ], ["uint256", "uint256"]);
 
-        await subnetProviderUptime.updateMerkleRoot(tree.root);
+        await subnetProviderUptime.connect(addr1).updateMerkleRoot(tree.root);
         const invalidProof: BytesLike[] | Typed = [];
 
-        await expect(subnetProviderUptime.reportUptime(1, 100, invalidProof))
+        await expect(subnetProviderUptime.connect(addr1).reportUptime(1, 100, invalidProof))
             .to.be.revertedWith("Invalid Merkle proof");
     });
 

@@ -18,6 +18,8 @@ contract SubnetProviderUptime is Ownable {
     IERC20 public rewardToken;
     uint256 public rewardPerSecond;
     bytes32 public merkleRoot;
+    string public verifierPeerId;
+    address public operator;
 
     struct Uptime {
         uint256 totalUptime; // Total uptime in seconds
@@ -34,6 +36,8 @@ contract SubnetProviderUptime is Ownable {
     event RewardClaimed(uint256 indexed tokenId, address indexed owner, uint256 amount);
     event RewardPerSecondUpdated(uint256 oldRewardPerSecond, uint256 newRewardPerSecond);
     event MerkleRootUpdated(bytes32 oldMerkleRoot, bytes32 newMerkleRoot);
+    event VerifierPeerIdUpdated(string oldVerifierPeerId, string newVerifierPeerId);
+    event OperatorUpdated(address oldOperator, address newOperator);
 
     /**
      * @dev Constructor for initializing the contract.
@@ -41,12 +45,16 @@ contract SubnetProviderUptime is Ownable {
      * @param _subnetProvider Address of the Subnet Provider contract.
      * @param _rewardToken Address of the ERC20 token used for rewards.
      * @param _rewardPerSecond Reward amount per second of uptime.
+     * @param _verifierPeerId Peer ID of the verifier.
+     * @param _operator Address of the operator.
      */
     constructor(
         address _owner,
         address _subnetProvider,
         address _rewardToken,
-        uint256 _rewardPerSecond
+        uint256 _rewardPerSecond,
+        string memory _verifierPeerId,
+        address _operator
     ) Ownable(_owner) {
         require(_subnetProvider != address(0), "Invalid SubnetProvider address");
         require(_rewardToken != address(0), "Invalid reward token address");
@@ -55,6 +63,8 @@ contract SubnetProviderUptime is Ownable {
         subnetProvider = SubnetProvider(_subnetProvider);
         rewardToken = IERC20(_rewardToken);
         rewardPerSecond = _rewardPerSecond;
+        verifierPeerId = _verifierPeerId;
+        operator = _operator;
     }
 
     /**
@@ -73,11 +83,34 @@ contract SubnetProviderUptime is Ownable {
      * @dev Updates the Merkle root for uptime validation.
      * @param _merkleRoot New Merkle root.
      */
-    function updateMerkleRoot(bytes32 _merkleRoot) external onlyOwner {
+    function updateMerkleRoot(bytes32 _merkleRoot) external {
+        require(msg.sender == owner() || msg.sender == operator, "Caller is not the owner or operator");
         bytes32 oldMerkleRoot = merkleRoot;
         merkleRoot = _merkleRoot;
 
         emit MerkleRootUpdated(oldMerkleRoot, _merkleRoot);
+    }
+
+    /**
+     * @dev Updates the verifier peer ID.
+     * @param _verifierPeerId New verifier peer ID.
+     */
+    function updateVerifierPeerId(string memory _verifierPeerId) external onlyOwner {
+        string memory oldVerifierPeerId = verifierPeerId;
+        verifierPeerId = _verifierPeerId;
+
+        emit VerifierPeerIdUpdated(oldVerifierPeerId, _verifierPeerId);
+    }
+
+    /**
+     * @dev Updates the operator.
+     * @param _operator New operator address.
+     */
+    function updateOperator(address _operator) external onlyOwner {
+        address oldOperator = operator;
+        operator = _operator;
+
+        emit OperatorUpdated(oldOperator, _operator);
     }
 
     /**

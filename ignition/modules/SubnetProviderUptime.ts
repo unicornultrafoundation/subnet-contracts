@@ -15,7 +15,9 @@ const SubnetProviderUptimeModule = buildModule("SubnetProviderUptime", (m) => {
         ownerAddress,
         subnetProvider,
         rewardTokenAddress,
-        rewardPerSecond
+        rewardPerSecond,
+        "12D3KooWGNQYBFWmKgiAgEsQ4u2WznEgR2NmrBbYcfq33yQo4D8a",
+        ownerAddress
     ]);
 
     return { subnetProviderUptime };
