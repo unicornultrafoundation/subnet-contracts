@@ -103,6 +103,31 @@ describe("SubnetAppStore", function () {
         });
     });
 
+    describe("Update PeerId", function () {
+        beforeEach(async function () {
+            await createApp();
+        });
+
+        it("should allow the owner to update the peerId", async function () {
+            await subnetAppStore.connect(owner).updatePeerId(1, "newPeerId");
+            const app = await subnetAppStore.getApp(1);
+            expect(app.peerId).to.equal("newPeerId");
+        });
+
+        it("should allow the operator to update the peerId", async function () {
+            await subnetAppStore.connect(owner).updateOperator(1, addr1.address);
+            await subnetAppStore.connect(addr1).updatePeerId(1, "newPeerId");
+            const app = await subnetAppStore.getApp(1);
+            expect(app.peerId).to.equal("newPeerId");
+        });
+
+        it("should not allow others to update the peerId", async function () {
+            await expect(
+                subnetAppStore.connect(addr2).updatePeerId(1, "newPeerId")
+            ).to.be.revertedWith("Only the owner or operator can update the peerId");
+        });
+    });
+
     describe("Report Usage", function () {
         beforeEach(async function () {
             await createApp();

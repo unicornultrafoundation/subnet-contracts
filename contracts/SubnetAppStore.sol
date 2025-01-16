@@ -372,6 +372,27 @@ contract SubnetAppStore is EIP712, Ownable {
     }
 
     /**
+     * @dev Updates the peerId of an existing application.
+     * Only the owner or operator of the application can perform the update.
+     *
+     * @param appId The ID of the application to update.
+     * @param peerId The new peerId.
+     */
+    function updatePeerId(uint256 appId, string memory peerId) public {
+        App storage app = apps[appId];
+
+        require(
+            app.owner == msg.sender || app.operator == msg.sender,
+            "Only the owner or operator can update the peerId"
+        );
+        require(appId > 0 && appId <= appCount, "Application ID is invalid");
+
+        app.peerId = peerId;
+
+        emit AppUpdated(appId);
+    }
+
+    /**
      * @dev Reports usage for node resources based on usage data.
      * This function calculates rewards for a node by validating its reported resource usage,
      * ensuring it's within the application's budget, and storing the pending rewards.
