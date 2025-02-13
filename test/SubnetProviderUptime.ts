@@ -1,9 +1,11 @@
-import { ethers } from 'hardhat';
+import { ethers, ignition } from 'hardhat';
 import { expect } from 'chai';
 import { SubnetProviderUptime, SubnetProvider, ERC20Mock } from '../typechain-types';
 import { HardhatEthersSigner } from '@nomicfoundation/hardhat-ethers/signers';
 import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
 import { BytesLike, Typed } from 'ethers';
+import UpgradeSubnetProviderModule from '../ignition/modules/SubnetProvider';
+import UpgradeSubnetProviderUptimeModule from '../ignition/modules/SubnetProviderUptime';
 
 describe("SubnetProviderUptime", function () {
     let subnetProviderUptime: SubnetProviderUptime;
@@ -15,23 +17,22 @@ describe("SubnetProviderUptime", function () {
         [owner, addr1, addr2] = await ethers.getSigners();
 
         // Deploy SubnetProvider contract
-        const SubnetProviderFactory = await ethers.getContractFactory("SubnetProvider");
-        subnetProvider = await SubnetProviderFactory.deploy();
+        const { proxy: subnetProviderProxy} = await ignition.deploy(UpgradeSubnetProviderModule);
+        subnetProvider = await ethers.getContractAt("SubnetProvider", await subnetProviderProxy.getAddress());
+        await subnetProvider.initialize();
 
         // Deploy ERC20Mock contract
         const ERC20MockFactory = await ethers.getContractFactory("ERC20Mock");
         rewardToken = await ERC20MockFactory.deploy("Reward Token", "RT");
 
-        // Deploy SubnetProviderUptime contract
-        const SubnetProviderUptimeFactory = await ethers.getContractFactory("SubnetProviderUptime");
-        subnetProviderUptime = await SubnetProviderUptimeFactory.deploy(
-            owner.address,
+        const { proxy: subnetProviderUptimeProxy} = await ignition.deploy(UpgradeSubnetProviderUptimeModule);
+        subnetProviderUptime = await ethers.getContractAt("SubnetProviderUptime", await subnetProviderUptimeProxy.getAddress());
+        await subnetProviderUptime.initialize(owner.address,
             await subnetProvider.getAddress(),
             await rewardToken.getAddress(),
             ethers.parseEther("0.01"), // Reward per second
-            "verifierPeerId",
-            addr1.address // Operator
-        );
+            addr1.address, 50);
+
 
         // Mint and approve reward tokens
         await rewardToken.mint(owner.address, ethers.parseEther("100000"));
@@ -61,24 +62,15 @@ describe("SubnetProviderUptime", function () {
         expect(await subnetProviderUptime.merkleRoot()).to.equal(tree.root);
     });
 
-    it("should update the verifier peer ID", async function () {
-        const newVerifierPeerId = "newVerifierPeerId";
 
-        await expect(subnetProviderUptime.updateVerifierPeerId(newVerifierPeerId))
-            .to.emit(subnetProviderUptime, "VerifierPeerIdUpdated")
-            .withArgs("verifierPeerId", newVerifierPeerId);
-
-        expect(await subnetProviderUptime.verifierPeerId()).to.equal(newVerifierPeerId);
-    });
-
-    it("should update the operator", async function () {
+    it("should update the Verifier", async function () {
         const newOperator = addr2.address;
 
-        await expect(subnetProviderUptime.updateOperator(newOperator))
-            .to.emit(subnetProviderUptime, "OperatorUpdated")
+        await expect(subnetProviderUptime.updateVerifier(newOperator))
+            .to.emit(subnetProviderUptime, "VerifierUpdated")
             .withArgs(addr1.address, newOperator);
 
-        expect(await subnetProviderUptime.operator()).to.equal(newOperator);
+        expect(await subnetProviderUptime.verifier()).to.equal(newOperator);
     });
 
     it("should report uptime and calculate pending rewards", async function () {
@@ -96,7 +88,7 @@ describe("SubnetProviderUptime", function () {
 
         const uptime = await subnetProviderUptime.uptimes(1);
         expect(uptime.claimedUptime).to.equal(100);
-        expect(uptime.pendingReward).to.equal(ethers.parseEther("1"));
+        expect(uptime.pendingReward).to.equal(ethers.parseEther("0.95"));
     });
 
     it("should claim rewards successfully", async function () {
@@ -120,10 +112,10 @@ describe("SubnetProviderUptime", function () {
 
         await expect(subnetProviderUptime.claimReward(1))
             .to.emit(subnetProviderUptime, "RewardClaimed")
-            .withArgs(1, owner.address, ethers.parseEther("1"));
+            .withArgs(1, owner.address, ethers.parseEther("0.95"));
 
         const finalBalance = await rewardToken.balanceOf(owner.address);
-        expect(finalBalance - initialBalance).to.equal(ethers.parseEther("1"));
+        expect(finalBalance - initialBalance).to.equal(ethers.parseEther("0.95"));
     });
 
     it("should revert if the claim is not yet unlocked", async function () {

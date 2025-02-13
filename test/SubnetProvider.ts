@@ -1,7 +1,8 @@
-import { ethers } from 'hardhat';
+import { ethers, ignition } from 'hardhat';
 import { expect } from 'chai';
 import { SubnetProvider } from '../typechain-types';
 import { HardhatEthersSigner } from '@nomicfoundation/hardhat-ethers/signers';
+import SubnetProviderModule from '../ignition/modules/SubnetProvider';
 
 describe("SubnetProvider", function () {
     let subnetProvider: SubnetProvider;
@@ -10,9 +11,9 @@ describe("SubnetProvider", function () {
     beforeEach(async function () {
         [owner, addr1, addr2] = await ethers.getSigners();
 
-        // Deploy SubnetProvider contract
-        const SubnetProviderFactory = await ethers.getContractFactory("SubnetProvider");
-        subnetProvider = await SubnetProviderFactory.deploy();
+        const { proxy} = await ignition.deploy(SubnetProviderModule);
+        subnetProvider = await ethers.getContractAt("SubnetProvider", await proxy.getAddress());
+        await subnetProvider.initialize();
     });
 
     it("should register a new provider and mint an NFT", async function () {
@@ -140,5 +141,87 @@ describe("SubnetProvider", function () {
 
         const provider = await subnetProvider.getProvider(1);
         expect(provider.website).to.equal(newWebsite);
+    });
+
+    it("should register a new peer node for a provider", async function () {
+        const providerName = "Provider1";
+        const metadata = "Metadata1";
+        const operator = addr1.address;
+        const website = "https://provider1.com";
+
+        await subnetProvider.connect(addr1).registerProvider(providerName, metadata, operator, website);
+
+        const peerId = "peer123";
+        const peerMetadata = "PeerMetadata";
+
+        await expect(subnetProvider.connect(addr1).registerPeerNode(1, peerId, peerMetadata))
+            .to.emit(subnetProvider, "PeerNodeRegistered")
+            .withArgs(1, peerId, peerMetadata);
+
+        const peerNode = await subnetProvider.getPeerNode(1, peerId);
+        expect(peerNode.isRegistered).to.equal(true);
+        expect(peerNode.metadata).to.equal(peerMetadata);
+    });
+
+    it("should revert if peer node is already registered", async function () {
+        const providerName = "Provider1";
+        const metadata = "Metadata1";
+        const operator = addr1.address;
+        const website = "https://provider1.com";
+
+        await subnetProvider.connect(addr1).registerProvider(providerName, metadata, operator, website);
+
+        const peerId = "peer123";
+        const peerMetadata = "PeerMetadata";
+
+        await subnetProvider.connect(addr1).registerPeerNode(1, peerId, peerMetadata);
+
+        await expect(subnetProvider.connect(addr1).registerPeerNode(1, peerId, peerMetadata))
+            .to.be.revertedWith("Peer node already registered");
+    });
+
+    it("should update a peer node for a provider", async function () {
+        const providerName = "Provider1";
+        const metadata = "Metadata1";
+        const operator = addr1.address;
+        const website = "https://provider1.com";
+
+        await subnetProvider.connect(addr1).registerProvider(providerName, metadata, operator, website);
+
+        const peerId = "peer123";
+        const peerMetadata = "PeerMetadata";
+
+        await subnetProvider.connect(addr1).registerPeerNode(1, peerId, peerMetadata);
+
+        const newPeerMetadata = "UpdatedPeerMetadata";
+
+        await expect(subnetProvider.connect(addr1).updatePeerNode(1, peerId, newPeerMetadata))
+            .to.emit(subnetProvider, "PeerNodeUpdated")
+            .withArgs(1, peerId, newPeerMetadata);
+
+        const peerNode = await subnetProvider.getPeerNode(1, peerId);
+        expect(peerNode.isRegistered).to.equal(true);
+        expect(peerNode.metadata).to.equal(newPeerMetadata);
+    });
+
+    it("should delete a peer node for a provider", async function () {
+        const providerName = "Provider1";
+        const metadata = "Metadata1";
+        const operator = addr1.address;
+        const website = "https://provider1.com";
+
+        await subnetProvider.connect(addr1).registerProvider(providerName, metadata, operator, website);
+
+        const peerId = "peer123";
+        const peerMetadata = "PeerMetadata";
+
+        await subnetProvider.connect(addr1).registerPeerNode(1, peerId, peerMetadata);
+
+        await expect(subnetProvider.connect(addr1).deletePeerNode(1, peerId))
+            .to.emit(subnetProvider, "PeerNodeDeleted")
+            .withArgs(1, peerId);
+
+        const peerNode = await subnetProvider.getPeerNode(1, peerId);
+        expect(peerNode.isRegistered).to.equal(false);
     });
 });

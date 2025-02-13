@@ -2,17 +2,19 @@
 pragma solidity ^0.8.0;
 
 import "./SubnetProvider.sol";
-import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
 /**
  * @title SubnetAppStore
  * @dev Registry to manage applications running on subnets and reward nodes based on resource usage.
  * Implements EIP-712 for structured data signing and Ownable for admin functionalities.
  */
-contract SubnetAppStore is EIP712, Ownable {
+contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable {
     using SafeERC20 for IERC20;
 
     // EIP-712 Domain Separator constants
@@ -24,11 +26,11 @@ contract SubnetAppStore is EIP712, Ownable {
         string peerId;
         address owner; // Application owner
         address operator; // Application operator
+        address verifier; // Verifier address
         string name; // Application name
         string symbol; // Unique symbol
         uint256 budget; // Total budget for the app
         uint256 spentBudget; // Spent budget
-        uint256 nodeCount; // Current active nodes
         uint256 pricePerCpu; // Price per CPU unit
         uint256 pricePerGpu; // Price per GPU unit
         uint256 pricePerMemoryGB; // Price per GB of memory
@@ -40,13 +42,6 @@ contract SubnetAppStore is EIP712, Ownable {
 
     // Struct for tracking node-specific resource usage
     struct Deployment {
-        uint256 duration; // Duration the node has been running (in seconds)
-        uint256 usedCpu;
-        uint256 usedGpu;
-        uint256 usedMemory;
-        uint256 usedStorage;
-        uint256 usedDownloadBytes;
-        uint256 usedUploadBytes;
         bool isRegistered;
         uint256 lastClaimTime; // Last time reward was claimed
         uint256 pendingReward; // Pending reward to be claimed
@@ -56,6 +51,7 @@ contract SubnetAppStore is EIP712, Ownable {
     struct Usage {
         uint256 providerId;
         uint256 appId;
+        string peerId;
         uint256 usedCpu;
         uint256 usedGpu;
         uint256 usedMemory;
@@ -74,6 +70,7 @@ contract SubnetAppStore is EIP712, Ownable {
     mapping(bytes32 => bool) public usedMessageHashes; // Track used message hashes to prevent replay attacks
     address public treasury; // Treasury address
     uint256 public feeRate; // Fee rate in parts per thousand (e.g., 50 = 5%)
+    uint256 public verifierRewardRate; // Reward rate for verifiers in parts per thousand (e.g., 10 = 1%)
 
     // Events
     event AppCreated(
@@ -93,31 +90,38 @@ contract SubnetAppStore is EIP712, Ownable {
     event UsageReported(
         uint256 indexed appId,
         uint256 indexed providerId,
+        string peerId,
+        uint256 usedCpu,
+        uint256 usedGpu,
+        uint256 usedMemory,
+        uint256 usedStorage,
+        uint256 usedUploadBytes,
+        uint256 usedDownloadBytes,
+        uint256 duration,
         uint256 reward
     );
-    event BudgetDeposited(
-        uint256 indexed appId,
-        uint256 amount
-    );
+    event BudgetDeposited(uint256 indexed appId, uint256 amount);
 
     /**
      * @dev Emitted when an application is updated.
      */
     event AppUpdated(uint256 appId);
 
+    event VerifierRewardClaimed(address indexed verifier, uint256 reward);
+
     /**
-     * @dev Constructor for initializing the contract.
+     * @dev Initializes the contract. This function is called by the proxy.
      * @param _subnetProvider Address of the Subnet Provider.
      * @param initialOwner Address of the initial owner of the contract.
      * @param _treasury Address of the treasury to collect fees.
      * @param _feeRate Fee rate as parts per thousand.
      */
-    constructor(
+    function initialize(
         address _subnetProvider,
         address initialOwner,
         address _treasury,
         uint256 _feeRate
-    ) EIP712(SIGNING_DOMAIN, SIGNATURE_VERSION) Ownable(initialOwner) {
+    ) external initializer {
         require(
             _subnetProvider != address(0),
             "Invalid SubnetProvider address"
@@ -125,6 +129,8 @@ contract SubnetAppStore is EIP712, Ownable {
         subnetProvider = SubnetProvider(_subnetProvider);
         treasury = _treasury;
         feeRate = _feeRate;
+        __Ownable_init(initialOwner);
+        __EIP712_init(SIGNING_DOMAIN, SIGNATURE_VERSION);
     }
 
     /**
@@ -146,6 +152,20 @@ contract SubnetAppStore is EIP712, Ownable {
     }
 
     /**
+     * @dev Updates the verifier reward rate.
+     * @param _verifierRewardRate The new verifier reward rate in parts per thousand.
+     */
+    function setVerifierRewardRate(
+        uint256 _verifierRewardRate
+    ) external onlyOwner {
+        require(
+            _verifierRewardRate <= 1000,
+            "Verifier reward rate must be <= 1000 (100%)"
+        );
+        verifierRewardRate = _verifierRewardRate;
+    }
+
+    /**
      * @dev Creates a new application with specified resource requirements and payment configurations.
      * The application is registered under the caller's ownership.
      *
@@ -160,6 +180,7 @@ contract SubnetAppStore is EIP712, Ownable {
      * @param pricePerBandwidthGB The payment per GB of bandwidth used.
      * @param metadata Metadata
      * @param operator The operator of the application.
+     * @param verifier The verifier of the application.
      * @param paymentToken The ERC20 token address for payment.
      */
     function createApp(
@@ -174,6 +195,7 @@ contract SubnetAppStore is EIP712, Ownable {
         uint256 pricePerBandwidthGB,
         string memory metadata,
         address operator,
+        address verifier,
         address paymentToken
     ) public returns (uint256) {
         require(symbolToAppId[symbol] == 0, "Symbol already exists");
@@ -184,6 +206,7 @@ contract SubnetAppStore is EIP712, Ownable {
         app.peerId = peerId;
         app.owner = msg.sender;
         app.operator = operator;
+        app.verifier = verifier;
         app.name = name;
         app.symbol = symbol;
         app.budget = budget;
@@ -220,7 +243,11 @@ contract SubnetAppStore is EIP712, Ownable {
         require(appId > 0 && appId <= appCount, "Application ID is invalid");
 
         // Transfer the additional budget in ERC20 tokens from the caller to the contract
-        IERC20(app.paymentToken).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(app.paymentToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
 
         // Update the app's budget
         app.budget += amount;
@@ -325,6 +352,27 @@ contract SubnetAppStore is EIP712, Ownable {
     }
 
     /**
+     * @dev Updates the verifier of an existing application.
+     * Only the owner of the application can perform the update.
+     *
+     * @param appId The ID of the application to update.
+     * @param verifier The new verifier.
+     */
+    function updateVerifier(uint256 appId, address verifier) public {
+        App storage app = apps[appId];
+
+        require(
+            app.owner == msg.sender,
+            "Only the owner can update the verifier"
+        );
+        require(appId > 0 && appId <= appCount, "Application ID is invalid");
+
+        app.verifier = verifier;
+
+        emit AppUpdated(appId);
+    }
+
+    /**
      * @dev Updates the peerId of an existing application.
      * Only the owner or operator of the application can perform the update.
      *
@@ -352,6 +400,7 @@ contract SubnetAppStore is EIP712, Ownable {
      *
      * @param appId The ID of the application the node is working on.
      * @param providerId The ID of the provider where the node is registered.
+     * @param peerId The ID of the peer node.
      * @param usedCpu The total CPU usage (in units) reported by the node.
      * @param usedGpu The total GPU usage (in units) reported by the node.
      * @param usedMemory The total memory usage (in GB) reported by the node.
@@ -364,6 +413,7 @@ contract SubnetAppStore is EIP712, Ownable {
     function reportUsage(
         uint256 appId,
         uint256 providerId,
+        string memory peerId,
         uint256 usedCpu,
         uint256 usedGpu,
         uint256 usedMemory,
@@ -383,10 +433,13 @@ contract SubnetAppStore is EIP712, Ownable {
             providerId
         );
         require(provider.tokenId != 0, "Provider inactive");
+        require(subnetProvider.getPeerNode(providerId, peerId).isRegistered, "Peer node not registered");
+
         // Hash and verify usage data
         Usage memory data = Usage({
             providerId: providerId,
             appId: appId,
+            peerId: peerId,
             usedCpu: usedCpu,
             usedGpu: usedGpu,
             usedMemory: usedMemory,
@@ -401,60 +454,57 @@ contract SubnetAppStore is EIP712, Ownable {
 
         address signer = ECDSA.recover(structHash, signature);
         require(
-            signer == app.owner || signer == app.operator,
+            signer == app.owner || signer == app.operator || signer == app.verifier,
             "Invalid app owner or operator signature"
         );
 
         // Retrieve and calculate new usage
         Deployment storage deployment = deployments[appId][providerId];
-        uint256 newCpu = usedCpu - deployment.usedCpu;
-        uint256 newGpu = usedGpu - deployment.usedGpu;
-        uint256 newUploadBytes = usedUploadBytes - deployment.usedUploadBytes;
-        uint256 newDownloadBytes = usedDownloadBytes -
-            deployment.usedDownloadBytes;
-        uint256 newDuration = duration - deployment.duration;
-
-        // Update the node's usage
-        deployment.usedCpu = usedCpu;
-        deployment.usedGpu = usedGpu;
-        deployment.usedMemory = usedMemory; // Memory updates directly
-        deployment.usedStorage = usedStorage;
-        deployment.usedUploadBytes = usedUploadBytes;
-        deployment.usedDownloadBytes = usedDownloadBytes;
-        deployment.duration += newDuration;
-
         // Increment node count if the deployment is new
         if (!deployment.isRegistered) {
             deployment.isRegistered = true;
             deployment.lastClaimTime = block.timestamp;
-            app.nodeCount++;
         }
 
         // Calculate reward
-        uint256 reward = 0;
-
-        // Bandwidth usage (independent of duration)
-        uint256 newBandwidthGB = (newUploadBytes + newDownloadBytes) / 1e9;
-        reward += newBandwidthGB * app.pricePerBandwidthGB;
-
-        // CPU and GPU usage (independent of duration)
-        reward += newCpu * app.pricePerCpu;
-        reward += newGpu * app.pricePerGpu;
-
-        // Memory and Storage usage (dependent on duration)
-        reward += (usedMemory / 1e9) * duration * app.pricePerMemoryGB;
-        reward += (usedStorage / 1e9) * duration * app.pricePerStorageGB;
+        uint256 reward = calculateReward(appId, usedCpu, usedGpu, usedMemory, usedStorage, usedUploadBytes, usedDownloadBytes, duration);
 
         // Ensure sufficient budget
         require(app.budget >= app.spentBudget + reward, "Insufficient budget");
 
-        // Update pending reward
-        deployment.pendingReward += reward;
+        // Calculate verifier reward if signer is the operator and not the owner
+        uint256 verifierReward = 0;
+        if (signer == app.verifier && verifierRewardRate > 0) {
+            verifierReward = (reward * verifierRewardRate) / 1000;
+            if (verifierReward > 0) {
+                // Transfer verifier reward to the operator
+                IERC20(app.paymentToken).safeTransfer(
+                    app.verifier,
+                    verifierReward
+                );
+                emit VerifierRewardClaimed(app.verifier, verifierReward);
+            }
+        }
+
+        // Update pending reward for deployment
+        deployment.pendingReward += (reward - verifierReward);
 
         // Update the app's spent budget
         app.spentBudget += reward;
 
-        emit UsageReported(appId, providerId, reward);
+        emit UsageReported(
+            appId,
+            providerId,
+            peerId,
+            usedCpu,
+            usedGpu,
+            usedMemory,
+            usedStorage,
+            usedUploadBytes,
+            usedDownloadBytes,
+            duration,
+            reward
+        );
     }
 
     /**
@@ -547,10 +597,11 @@ contract SubnetAppStore is EIP712, Ownable {
             keccak256(
                 abi.encode(
                     keccak256(
-                        "Usage(uint256 providerId,uint256 appId,uint256 usedCpu,uint256 usedGpu,uint256 usedMemory,uint256 usedStorage,uint256 usedUploadBytes,uint256 usedDownloadBytes,uint256 duration)"
+                        "Usage(uint256 providerId,uint256 appId,string peerId,uint256 usedCpu,uint256 usedGpu,uint256 usedMemory,uint256 usedStorage,uint256 usedUploadBytes,uint256 usedDownloadBytes,uint256 duration)"
                     ),
                     data.providerId,
                     data.appId,
+                    keccak256(bytes(data.peerId)),
                     data.usedCpu,
                     data.usedGpu,
                     data.usedMemory,
@@ -591,5 +642,43 @@ contract SubnetAppStore is EIP712, Ownable {
 
     function version() public pure returns (string memory) {
         return "1.0.0";
+    }
+
+    /**
+     * @dev Calculates the reward based on resource usage.
+     * @param appId The application ID.
+     * @param usedCpu The total CPU usage (in units) reported by the node.
+     * @param usedGpu The total GPU usage (in units) reported by the node.
+     * @param usedMemory The total memory usage (in GB) reported by the node.
+     * @param usedStorage The total storage usage (in GB) reported by the node.
+     * @param usedUploadBytes The total uploaded data (in bytes) reported by the node.
+     * @param usedDownloadBytes The total downloaded data (in bytes) reported by the node.
+     * @param duration The duration (in seconds) the node worked.
+     * @return reward The calculated reward.
+     */
+    function calculateReward(
+        uint256 appId,
+        uint256 usedCpu,
+        uint256 usedGpu,
+        uint256 usedMemory,
+        uint256 usedStorage,
+        uint256 usedUploadBytes,
+        uint256 usedDownloadBytes,
+        uint256 duration
+    ) public view returns (uint256 reward) {
+        App memory app = apps[appId];
+        // Bandwidth usage (independent of duration)
+        uint256 bandwidthGB = (usedUploadBytes + usedDownloadBytes) / 1e9;
+        reward += bandwidthGB * app.pricePerBandwidthGB;
+
+        // CPU (independent of duration)
+        reward += usedCpu * app.pricePerCpu;
+
+        // Memory and Storage usage (dependent on duration)
+        reward += (usedMemory / 1e9) * duration * app.pricePerMemoryGB;
+        reward += (usedStorage / 1e9) * duration * app.pricePerStorageGB;
+        reward += (usedGpu / 1e9) * duration * app.pricePerGpu;
+
+        return reward;
     }
 }

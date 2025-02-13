@@ -1,55 +1,52 @@
-import { ethers } from 'hardhat';
+import { ethers, ignition } from 'hardhat';
 import { expect } from 'chai';
 import { ERC20Mock, SubnetAppStore, SubnetProvider } from '../typechain-types';
 import { HardhatEthersSigner } from '@nomicfoundation/hardhat-ethers/signers';
+import SubnetProviderModule from '../ignition/modules/SubnetProvider';
+import SubnetAppStoreModule from '../ignition/modules/SubnetAppStore';
 
 describe("SubnetAppStore", function () {
     let subnetAppStore: SubnetAppStore;
     let subnetProvider: SubnetProvider;
-    let owner: HardhatEthersSigner, treasury: HardhatEthersSigner, addr1: HardhatEthersSigner, addr2: HardhatEthersSigner;
+    let owner: HardhatEthersSigner, operator: HardhatEthersSigner, treasury: HardhatEthersSigner, addr1: HardhatEthersSigner, addr2: HardhatEthersSigner;
     let rewardToken: ERC20Mock;
 
     beforeEach(async function () {
-        [owner, treasury, addr1, addr2] = await ethers.getSigners();
+        [owner, operator, treasury, addr1, addr2] = await ethers.getSigners();
 
         const MockErc20 = await ethers.getContractFactory("ERC20Mock");
         rewardToken = await MockErc20.deploy("Reward Token", "RT");
 
-        // Deploy SubnetProvider contract
-        const SubnetProviderFactory = await ethers.getContractFactory("SubnetProvider");
-        subnetProvider = await SubnetProviderFactory.deploy();
 
+        const { proxy: subnetProviderProxy} = await ignition.deploy(SubnetProviderModule);
+        subnetProvider = await ethers.getContractAt("SubnetProvider", await subnetProviderProxy.getAddress());
+        await subnetProvider.initialize();
         await subnetProvider.registerProvider("name", "metadata", owner.address, "https://provider.com");
 
-        // Deploy SubnetAppStore contract
-        const SubnetAppStoreFactory = await ethers.getContractFactory("SubnetAppStore");
-        subnetAppStore = await SubnetAppStoreFactory.deploy(
-            await subnetProvider.getAddress(),
-            owner.address,
-            treasury.address,
-            50 // Fee rate: 5%
-        );
-
+        // Deploy subnetAppStoreProxy contract
+        const { proxy: subnetAppStoreProxy} = await ignition.deploy(SubnetAppStoreModule);
+        subnetAppStore = await ethers.getContractAt("SubnetAppStore", await subnetAppStoreProxy.getAddress());
+        await subnetAppStore.initialize(await subnetProvider.getAddress(), owner.address, treasury.address, 50); // Fee rate: 5%
         await rewardToken.mint(owner.address, ethers.parseEther("10000"));
         await rewardToken.approve(subnetAppStore.getAddress(), ethers.parseEther("10000"));
     });
 
     async function createApp() {
         const appBudget = ethers.parseEther("10"); // 10 ETH
-        const operator = owner.address;
 
         await subnetAppStore.createApp(
             "TestApp",
             "TAPP",
             "peer123",
             appBudget,
-            1, // pricePerCpu
-            1, // pricePerGpu
-            1, // pricePerMemoryGB
-            1, // pricePerStorageGB
-            1, // pricePerBandwidthGB
+            ethers.parseEther("0.00001"), // pricePerCpu
+            ethers.parseEther("0.00001"), // pricePerGpu
+            ethers.parseEther("0.00001"), // pricePerMemoryGB
+            ethers.parseEther("0.00001"), // pricePerStorageGB
+            ethers.parseEther("0.00001"), // pricePerBandwidthGB
             "metadata",
-            operator,
+            operator.address,
+            operator.address, // verifier
             await rewardToken.getAddress() // paymentToken
         );
     }
@@ -63,7 +60,7 @@ describe("SubnetAppStore", function () {
         expect(app.peerId).to.equal("peer123");
         expect(app.budget).to.equal(ethers.parseEther("10"));
         expect(app.owner).to.equal(owner.address);
-        expect(app.operator).to.equal(owner.address);
+        expect(app.operator).to.equal(operator.address);
     });
 
     describe("Update App Fields", function () {
@@ -125,6 +122,7 @@ describe("SubnetAppStore", function () {
         beforeEach(async function () {
             await createApp();
             await subnetProvider.registerProvider("provider1", "metadata1", owner.address, "https://provider1.com");
+            await subnetProvider.registerPeerNode(1, "peer123", "metadata");
         });
 
         it("should report usage and calculate rewards", async function () {
@@ -133,6 +131,7 @@ describe("SubnetAppStore", function () {
             const usageData = {
                 providerId: providerId,
                 appId: appId,
+                peerId: "peer123",
                 usedCpu: 10,
                 usedGpu: 5,
                 usedMemory: 10 * 1e9,
@@ -153,6 +152,7 @@ describe("SubnetAppStore", function () {
                 Usage: [
                     { name: "providerId", type: "uint256" },
                     { name: "appId", type: "uint256" },
+                    { name: "peerId", type: "string" },
                     { name: "usedCpu", type: "uint256" },
                     { name: "usedGpu", type: "uint256" },
                     { name: "usedMemory", type: "uint256" },
@@ -168,6 +168,7 @@ describe("SubnetAppStore", function () {
             await subnetAppStore.reportUsage(
                 usageData.providerId,
                 usageData.appId,
+                usageData.peerId,
                 usageData.usedCpu,
                 usageData.usedGpu,
                 usageData.usedMemory,
@@ -179,13 +180,7 @@ describe("SubnetAppStore", function () {
             );
 
             const deployment = await subnetAppStore.getDeployment(appId, providerId);
-            expect(deployment.usedCpu).to.equal(usageData.usedCpu);
-            expect(deployment.usedGpu).to.equal(usageData.usedGpu);
-            expect(deployment.usedMemory).to.equal(usageData.usedMemory);
-            expect(deployment.usedStorage).to.equal(usageData.usedStorage);
-            expect(deployment.usedUploadBytes).to.equal(usageData.usedUploadBytes);
-            expect(deployment.usedDownloadBytes).to.equal(usageData.usedDownloadBytes);
-            expect(deployment.duration).to.equal(usageData.duration);
+            expect(deployment.isRegistered).to.equal(true);
         });
 
         it("should revert if the signature is invalid", async function () {
@@ -194,6 +189,7 @@ describe("SubnetAppStore", function () {
             const usageData = {
                 providerId: providerId,
                 appId: appId,
+                peerId: "peer123",
                 usedCpu: 10,
                 usedGpu: 5,
                 usedMemory: 10 * 1e9,
@@ -209,6 +205,7 @@ describe("SubnetAppStore", function () {
                 subnetAppStore.reportUsage(
                     usageData.providerId,
                     usageData.appId,
+                    usageData.peerId,
                     usageData.usedCpu,
                     usageData.usedGpu,
                     usageData.usedMemory,
@@ -227,6 +224,7 @@ describe("SubnetAppStore", function () {
             const usageData = {
                 providerId: providerId,
                 appId: appId,
+                peerId: "peer123",
                 usedCpu: ethers.parseEther("100"),
                 usedGpu: 500,
                 usedMemory: 1000 * 1e9,
@@ -247,6 +245,7 @@ describe("SubnetAppStore", function () {
                 Usage: [
                     { name: "providerId", type: "uint256" },
                     { name: "appId", type: "uint256" },
+                    { name: "peerId", type: "string" },
                     { name: "usedCpu", type: "uint256" },
                     { name: "usedGpu", type: "uint256" },
                     { name: "usedMemory", type: "uint256" },
@@ -263,6 +262,7 @@ describe("SubnetAppStore", function () {
                 subnetAppStore.reportUsage(
                     usageData.providerId,
                     usageData.appId,
+                    usageData.peerId,
                     usageData.usedCpu,
                     usageData.usedGpu,
                     usageData.usedMemory,
@@ -280,6 +280,7 @@ describe("SubnetAppStore", function () {
         beforeEach(async function () {
             await createApp();
             await subnetProvider.registerProvider("provider1", "metadata1", owner.address, "https://provider1.com");
+            await subnetProvider.registerPeerNode(1, "peer123", "metadata");
             await rewardToken.mint(subnetAppStore.getAddress(), ethers.parseEther("100"));
         });
 
@@ -290,6 +291,7 @@ describe("SubnetAppStore", function () {
             const usageData = {
                 providerId: providerId,
                 appId: appId,
+                peerId: "peer123",
                 usedCpu: 10,
                 usedGpu: 5,
                 usedMemory: 10 * 1e9,
@@ -310,6 +312,7 @@ describe("SubnetAppStore", function () {
                 Usage: [
                     { name: "providerId", type: "uint256" },
                     { name: "appId", type: "uint256" },
+                    { name: "peerId", type: "string" },
                     { name: "usedCpu", type: "uint256" },
                     { name: "usedGpu", type: "uint256" },
                     { name: "usedMemory", type: "uint256" },
@@ -325,6 +328,7 @@ describe("SubnetAppStore", function () {
             await subnetAppStore.reportUsage(
                 usageData.providerId,
                 usageData.appId,
+                usageData.peerId,
                 usageData.usedCpu,
                 usageData.usedGpu,
                 usageData.usedMemory,
@@ -346,12 +350,12 @@ describe("SubnetAppStore", function () {
                 subnetAppStore.claimReward(providerId, appId)
             )
                 .to.emit(subnetAppStore, "RewardClaimed")
-                .withArgs(appId, providerId, 108018n);
+                .withArgs(appId, providerId, 1080130000000000000n);
 
             const finalTreasuryBalance = await rewardToken.balanceOf(treasury.address);
             const finalNodeBalance = await rewardToken.balanceOf(owner.address);
 
-            const expectedReward = 108018n;
+            const expectedReward = 1080130000000000000n;
             const fee = expectedReward * 50n/1000n;
             const netReward = expectedReward - fee;
 
@@ -366,6 +370,7 @@ describe("SubnetAppStore", function () {
             const usageData = {
                 providerId: providerId,
                 appId: appId,
+                peerId: "peer123",
                 usedCpu: 10,
                 usedGpu: 5,
                 usedMemory: 10 * 1e9,
@@ -386,6 +391,7 @@ describe("SubnetAppStore", function () {
                 Usage: [
                     { name: "providerId", type: "uint256" },
                     { name: "appId", type: "uint256" },
+                    { name: "peerId", type: "string" },
                     { name: "usedCpu", type: "uint256" },
                     { name: "usedGpu", type: "uint256" },
                     { name: "usedMemory", type: "uint256" },
@@ -401,6 +407,7 @@ describe("SubnetAppStore", function () {
             await subnetAppStore.reportUsage(
                 usageData.providerId,
                 usageData.appId,
+                usageData.peerId,
                 usageData.usedCpu,
                 usageData.usedGpu,
                 usageData.usedMemory,
@@ -414,6 +421,77 @@ describe("SubnetAppStore", function () {
             await expect(
                 subnetAppStore.claimReward(providerId, appId)
             ).to.be.revertedWith("Claim not yet unlocked");
+        });
+    });
+
+    describe("Verifier Reward", function () {
+        beforeEach(async function () {
+            await createApp();
+            await subnetProvider.registerProvider("provider1", "metadata1", owner.address, "https://provider1.com");
+            await subnetProvider.registerPeerNode(1, "peer123", "metadata");
+        });
+
+        it("should reward verifier correctly", async function () {
+            const providerId = 1;
+            const appId = 1;
+            const usageData = {
+                providerId: providerId,
+                appId: appId,
+                peerId: "peer123",
+                usedCpu: 10,
+                usedGpu: 5,
+                usedMemory: 10 * 1e9,
+                usedStorage: 20 * 1e9,
+                usedUploadBytes: 1e9, // 1 GB
+                usedDownloadBytes: 2e9, // 2 GB
+                duration: 3600 // 1 hour
+            };
+
+            const domain = {
+                name: "SubnetAppRegistry",
+                version: "1",
+                chainId: (await ethers.provider.getNetwork()).chainId,
+                verifyingContract: await subnetAppStore.getAddress()
+            };
+
+            const types = {
+                Usage: [
+                    { name: "providerId", type: "uint256" },
+                    { name: "appId", type: "uint256" },
+                    { name: "peerId", type: "string" },
+                    { name: "usedCpu", type: "uint256" },
+                    { name: "usedGpu", type: "uint256" },
+                    { name: "usedMemory", type: "uint256" },
+                    { name: "usedStorage", type: "uint256" },
+                    { name: "usedUploadBytes", type: "uint256" },
+                    { name: "usedDownloadBytes", type: "uint256" },
+                    { name: "duration", type: "uint256" }
+                ]
+            };
+
+            const signature = await operator.signTypedData(domain, types, usageData);
+            await subnetAppStore.setVerifierRewardRate(100); // 10%
+
+            await subnetAppStore.reportUsage(
+                usageData.providerId,
+                usageData.appId,
+                usageData.peerId,
+                usageData.usedCpu,
+                usageData.usedGpu,
+                usageData.usedMemory,
+                usageData.usedStorage,
+                usageData.usedUploadBytes,
+                usageData.usedDownloadBytes,
+                usageData.duration,
+                signature
+            );
+
+
+            const verifierRewardRate = await subnetAppStore.verifierRewardRate();
+            const totalReward = 1080130000000000000n;
+            const verifierReward = BigInt(totalReward) * verifierRewardRate / 1000n;
+
+            expect(await rewardToken.balanceOf(operator.address)).to.equal(verifierReward);
         });
     });
 });

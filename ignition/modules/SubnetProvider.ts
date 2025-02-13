@@ -1,12 +1,23 @@
-// This setup uses Hardhat Ignition to manage smart contract deployments.
-// Learn more about it at https://hardhat.org/ignition
-
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
 
-const SubnetProviderModule = buildModule("SubnetProvider", (m) => {
-  const subnetProvider = m.contract("SubnetProvider");
+const UpgradeSubnetProviderModule = buildModule("SubnetProvider", (m) => {
+  const proxyAdminOwner = m.getAccount(0);
+  const SubnetProvider = m.contract("SubnetProvider");
+  const proxy = m.contract("TransparentUpgradeableProxy", [
+    SubnetProvider,
+    proxyAdminOwner,
+    "0x",
+  ]);
 
-  return { subnetProvider };
+  const proxyAdminAddress = m.readEventArgument(
+    proxy,
+    "AdminChanged",
+    "newAdmin"
+  );
+
+  const proxyAdmin = m.contractAt("ProxyAdmin", proxyAdminAddress);
+
+  return { proxyAdmin, proxy };
 });
 
-export default SubnetProviderModule;
+export default UpgradeSubnetProviderModule;

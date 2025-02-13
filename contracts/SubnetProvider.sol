@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-contract SubnetProvider is ERC721 {
+contract SubnetProvider is Initializable, ERC721Upgradeable {
     uint256 private _tokenIds;
+
+    struct PeerNode {
+        bool isRegistered;
+        string metadata;
+    }
 
     struct Provider {
         uint256 tokenId;
@@ -15,6 +21,7 @@ contract SubnetProvider is ERC721 {
     }
 
     mapping(uint256 => Provider) public providers;
+    mapping(uint256 => mapping(string => PeerNode)) public peerNodeRegistered; // Track registered peer nodes for each provider
 
     event ProviderRegistered(address providerAddress, uint256 tokenId, string providerName, string metadata, address operator, string website);
     event NFTMinted(address providerAddress, uint256 tokenId);
@@ -22,8 +29,13 @@ contract SubnetProvider is ERC721 {
     event ProviderDeleted(uint256 tokenId);
     event OperatorUpdated(uint256 tokenId, address operator);
     event WebsiteUpdated(uint256 tokenId, string website);
+    event PeerNodeRegistered(uint256 indexed tokenId, string peerId, string metadata);
+    event PeerNodeDeleted(uint256 indexed tokenId, string peerId);
+    event PeerNodeUpdated(uint256 indexed tokenId, string peerId, string metadata);
 
-    constructor() ERC721("SubnetProviderNFT", "SPN") {}
+    function initialize() external initializer {
+        __ERC721_init("SubnetProvider", "SUBNET");
+    }
 
     /**
      * @dev Registers a new provider and mints an NFT.
@@ -112,6 +124,60 @@ contract SubnetProvider is ERC721 {
     }
 
     /**
+     * @dev Registers a new peer node for a provider.
+     * @param tokenId ID of the provider's token.
+     * @param peerId ID of the peer node.
+     * @param metadata Metadata for the peer node.
+     */
+    function registerPeerNode(uint256 tokenId, string memory peerId, string memory metadata) public {
+        require(ownerOf(tokenId) == msg.sender || providers[tokenId].operator == msg.sender, "Not the owner or operator of this token");
+        require(!peerNodeRegistered[tokenId][peerId].isRegistered, "Peer node already registered");
+        peerNodeRegistered[tokenId][peerId] = PeerNode({
+            isRegistered: true,
+            metadata: metadata
+        });
+
+        emit PeerNodeRegistered(tokenId, peerId, metadata);
+    }
+
+    /**
+     * @dev Updates the metadata of a peer node for a provider.
+     * @param tokenId ID of the provider's token.
+     * @param peerId ID of the peer node.
+     * @param metadata New metadata for the peer node.
+     */
+    function updatePeerNode(uint256 tokenId, string memory peerId, string memory metadata) public {
+        require(ownerOf(tokenId) == msg.sender || providers[tokenId].operator == msg.sender, "Not the owner or operator of this token");
+        require(peerNodeRegistered[tokenId][peerId].isRegistered, "Peer node not registered");
+        peerNodeRegistered[tokenId][peerId].metadata = metadata;
+
+        emit PeerNodeUpdated(tokenId, peerId, metadata);
+    }
+
+    /**
+     * @dev Deletes a peer node for a provider.
+     * @param tokenId ID of the provider's token.
+     * @param peerId ID of the peer node to delete.
+     */
+    function deletePeerNode(uint256 tokenId, string memory peerId) public {
+        require(ownerOf(tokenId) == msg.sender || providers[tokenId].operator == msg.sender, "Not the owner or operator of this token");
+        require(peerNodeRegistered[tokenId][peerId].isRegistered, "Peer node not registered");
+        delete peerNodeRegistered[tokenId][peerId];
+
+        emit PeerNodeDeleted(tokenId, peerId);
+    }
+
+    /**
+     * @dev Retrieves the peer node information for a given provider and peer ID.
+     * @param tokenId ID of the provider's token.
+     * @param peerId ID of the peer node.
+     * @return peerNode Information of the peer node.
+     */
+    function getPeerNode(uint256 tokenId, string memory peerId) public view returns (PeerNode memory) {
+        return peerNodeRegistered[tokenId][peerId];
+    }
+
+    /**
      * @dev Returns the provider information for a given token ID.
      * @param _tokenId ID of the token.
      * @return Provider information.
@@ -119,4 +185,9 @@ contract SubnetProvider is ERC721 {
     function getProvider(uint256 _tokenId) public view returns (Provider memory) {
         return providers[_tokenId];
     }
+
+    function version() public pure returns (string memory) {
+        return "1.0.0";
+    }
+
 }

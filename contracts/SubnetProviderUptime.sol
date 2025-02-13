@@ -2,24 +2,26 @@
 pragma solidity ^0.8.0;
 
 import "./SubnetProvider.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /**
  * @title SubnetProviderUptime
  * @dev Contract to track the uptime of providers and distribute rewards.
  */
-contract SubnetProviderUptime is Ownable {
+contract SubnetProviderUptime is Initializable,OwnableUpgradeable {
     using SafeERC20 for IERC20;
 
     SubnetProvider public subnetProvider;
     IERC20 public rewardToken;
     uint256 public rewardPerSecond;
+    uint256 public verifierRewardRate; // Reward rate for verifiers in parts per thousand (e.g., 10 = 1%)
     bytes32 public merkleRoot;
     string public verifierPeerId;
-    address public operator;
+    address public verifier;
 
     struct Uptime {
         uint256 totalUptime; // Total uptime in seconds
@@ -37,25 +39,25 @@ contract SubnetProviderUptime is Ownable {
     event RewardPerSecondUpdated(uint256 oldRewardPerSecond, uint256 newRewardPerSecond);
     event MerkleRootUpdated(bytes32 oldMerkleRoot, bytes32 newMerkleRoot);
     event VerifierPeerIdUpdated(string oldVerifierPeerId, string newVerifierPeerId);
-    event OperatorUpdated(address oldOperator, address newOperator);
+    event VerifierUpdated(address oldVerifier, address newVerifier);
+    event VerifierRewardClaimed(address indexed verifier, uint256 reward);
 
     /**
      * @dev Constructor for initializing the contract.
-     * @param _owner Address of the contract owner.
+     * @param _initialOwner Address of the contract owner.
      * @param _subnetProvider Address of the Subnet Provider contract.
      * @param _rewardToken Address of the ERC20 token used for rewards.
      * @param _rewardPerSecond Reward amount per second of uptime.
-     * @param _verifierPeerId Peer ID of the verifier.
-     * @param _operator Address of the operator.
+     * @param _verifier Address of the verifier.
      */
-    constructor(
-        address _owner,
+    function initialize(
+        address _initialOwner,
         address _subnetProvider,
         address _rewardToken,
         uint256 _rewardPerSecond,
-        string memory _verifierPeerId,
-        address _operator
-    ) Ownable(_owner) {
+        address _verifier,
+        uint256 _verifierRewardRate
+    ) external initializer {
         require(_subnetProvider != address(0), "Invalid SubnetProvider address");
         require(_rewardToken != address(0), "Invalid reward token address");
         require(_rewardPerSecond > 0, "Reward must be greater than zero");
@@ -63,8 +65,9 @@ contract SubnetProviderUptime is Ownable {
         subnetProvider = SubnetProvider(_subnetProvider);
         rewardToken = IERC20(_rewardToken);
         rewardPerSecond = _rewardPerSecond;
-        verifierPeerId = _verifierPeerId;
-        operator = _operator;
+        verifier = _verifier;
+        verifierRewardRate = _verifierRewardRate;
+        __Ownable_init(_initialOwner);
     }
 
     /**
@@ -84,7 +87,7 @@ contract SubnetProviderUptime is Ownable {
      * @param _merkleRoot New Merkle root.
      */
     function updateMerkleRoot(bytes32 _merkleRoot) external {
-        require(msg.sender == owner() || msg.sender == operator, "Caller is not the owner or operator");
+        require(msg.sender == owner() || msg.sender == verifier, "Caller is not the owner or operator");
         bytes32 oldMerkleRoot = merkleRoot;
         merkleRoot = _merkleRoot;
 
@@ -92,25 +95,14 @@ contract SubnetProviderUptime is Ownable {
     }
 
     /**
-     * @dev Updates the verifier peer ID.
-     * @param _verifierPeerId New verifier peer ID.
+     * @dev Updates the Verifier.
+     * @param _verifier New Verifier address.
      */
-    function updateVerifierPeerId(string memory _verifierPeerId) external onlyOwner {
-        string memory oldVerifierPeerId = verifierPeerId;
-        verifierPeerId = _verifierPeerId;
+    function updateVerifier(address _verifier) external onlyOwner {
+        address oldVerifier = verifier;
+        verifier = _verifier;
 
-        emit VerifierPeerIdUpdated(oldVerifierPeerId, _verifierPeerId);
-    }
-
-    /**
-     * @dev Updates the operator.
-     * @param _operator New operator address.
-     */
-    function updateOperator(address _operator) external onlyOwner {
-        address oldOperator = operator;
-        operator = _operator;
-
-        emit OperatorUpdated(oldOperator, _operator);
+        emit VerifierUpdated(oldVerifier, _verifier);
     }
 
     /**
@@ -134,9 +126,17 @@ contract SubnetProviderUptime is Ownable {
             uptime.lastClaimTime  = block.timestamp;
         }
 
+        // Calculate verifier reward
+        uint256 verifierReward = (reward * verifierRewardRate) / 1000;
+        if (verifierReward > 0) {
+            // Transfer verifier reward to the verifier
+            rewardToken.safeTransfer(verifier, verifierReward);
+            emit VerifierRewardClaimed(verifier, verifierReward);
+        }
+
         // Update claimed uptime and pending reward
         uptime.claimedUptime = totalUptime;
-        uptime.pendingReward += reward;
+        uptime.pendingReward += (reward - verifierReward);
 
         emit RewardReported(tokenId, uptime.pendingReward);
     }
@@ -184,4 +184,9 @@ contract SubnetProviderUptime is Ownable {
         require(amount > 0, "Must deposit tokens");
         rewardToken.safeTransferFrom(msg.sender, address(this), amount);
     }
+
+    function version() public pure returns (string memory) {
+        return "1.0.0";
+    }
+
 }
