@@ -142,7 +142,7 @@ describe("SubnetAppStore", function () {
             };
 
             const domain = {
-                name: "SubnetAppRegistry",
+                name: "SubnetAppStore",
                 version: "1",
                 chainId: (await ethers.provider.getNetwork()).chainId,
                 verifyingContract: await subnetAppStore.getAddress()
@@ -235,7 +235,7 @@ describe("SubnetAppStore", function () {
             };
 
             const domain = {
-                name: "SubnetAppRegistry",
+                name: "SubnetAppStore",
                 version: "1",
                 chainId: (await ethers.provider.getNetwork()).chainId,
                 verifyingContract: await subnetAppStore.getAddress()
@@ -302,7 +302,7 @@ describe("SubnetAppStore", function () {
             };
 
             const domain = {
-                name: "SubnetAppRegistry",
+                name: "SubnetAppStore",
                 version: "1",
                 chainId: (await ethers.provider.getNetwork()).chainId,
                 verifyingContract: await subnetAppStore.getAddress()
@@ -381,7 +381,7 @@ describe("SubnetAppStore", function () {
             };
 
             const domain = {
-                name: "SubnetAppRegistry",
+                name: "SubnetAppStore",
                 version: "1",
                 chainId: (await ethers.provider.getNetwork()).chainId,
                 verifyingContract: await subnetAppStore.getAddress()
@@ -448,7 +448,7 @@ describe("SubnetAppStore", function () {
             };
 
             const domain = {
-                name: "SubnetAppRegistry",
+                name: "SubnetAppStore",
                 version: "1",
                 chainId: (await ethers.provider.getNetwork()).chainId,
                 verifyingContract: await subnetAppStore.getAddress()

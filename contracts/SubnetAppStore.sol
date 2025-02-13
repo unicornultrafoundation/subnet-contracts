@@ -18,7 +18,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
     using SafeERC20 for IERC20;
 
     // EIP-712 Domain Separator constants
-    string private constant SIGNING_DOMAIN = "SubnetAppRegistry";
+    string private constant SIGNING_DOMAIN = "SubnetAppStore";
     string private constant SIGNATURE_VERSION = "1";
 
     // Struct representing an application
