@@ -72,6 +72,15 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable {
         emit VerifierDeleted(verifier);
     }
 
+    /**
+     * @dev Gets the verifier information.
+     * @param verifier Address of the verifier.
+     * @return VerifierInfo struct containing the verifier information.
+     */
+    function getVerifierInfo(address verifier) external view returns (VerifierInfo memory) {
+        return verifiers[verifier];
+    }
+
     function version() public pure returns (string memory) {
         return "1.0.0";
     }
