@@ -103,6 +103,8 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         uint256 reward
     );
     event BudgetDeposited(uint256 indexed appId, uint256 amount);
+    event BudgetRefunded(uint256 indexed appId, uint256 amount);
+    event ProviderRefunded(uint256 indexed appId, uint256 indexed providerId, uint256 amount);
 
     /**
      * @dev Emitted when an application is updated.
@@ -441,8 +443,8 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
 
         // Hash and verify usage data
         Usage memory data = Usage({
-            providerId: providerId,
             appId: appId,
+            providerId: providerId,
             peerId: peerId,
             usedCpu: usedCpu,
             usedGpu: usedGpu,
@@ -529,6 +531,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
             providerId
         );
         require(provider.tokenId != 0, "Provider inactive");
+        require(!provider.isJailed, "Provider is jailed");
 
         // Retrieve the node's pending reward
         Deployment storage deployment = deployments[appId][providerId];
@@ -558,6 +561,54 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         deployment.pendingReward = 0;
 
         emit RewardClaimed(appId, providerId, reward);
+    }
+
+    /**
+     * @dev Refunds the remaining budget to the app owner.
+     * @param appId The ID of the application to refund.
+     */
+    function refund(uint256 appId) external {
+        App storage app = apps[appId];
+
+        require(app.owner == msg.sender, "Only the owner can request a refund");
+        require(appId > 0 && appId <= appCount, "Application ID is invalid");
+
+        uint256 remainingBudget = app.budget - app.spentBudget;
+        require(remainingBudget > 0, "No remaining budget to refund");
+
+        // Transfer the remaining budget in ERC20 tokens from the contract to the owner
+        IERC20(app.paymentToken).safeTransfer(app.owner, remainingBudget);
+
+        // Update the app's budget
+        app.budget = 0;
+        app.spentBudget = 0;
+
+        emit BudgetRefunded(appId, remainingBudget);
+    }
+
+    /**
+     * @dev Refunds the remaining budget to a specific provider.
+     * @param appId The ID of the application to refund.
+     * @param providerId The ID of the provider to refund.
+     */
+    function refundProvider(uint256 appId, uint256 providerId) external {
+        App storage app = apps[appId];
+        require(appId > 0 && appId <= appCount, "Application ID is invalid");
+
+        SubnetProvider.Provider memory provider = subnetProvider.getProvider(providerId);
+        require(provider.isJailed, "Provider is not jailed");
+
+        Deployment storage deployment = deployments[appId][providerId];
+        uint256 pendingReward = deployment.pendingReward;
+        require(pendingReward > 0, "No pending reward to refund");
+
+        // Transfer the pending reward in ERC20 tokens from the contract to the provider owner
+        IERC20(app.paymentToken).safeTransfer(app.owner, pendingReward);
+
+        // Reset pending reward
+        deployment.pendingReward = 0;
+
+        emit ProviderRefunded(appId, providerId, pendingReward);
     }
 
     /**
@@ -603,10 +654,10 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
             keccak256(
                 abi.encode(
                     keccak256(
-                        "Usage(uint256 providerId,uint256 appId,string peerId,uint256 usedCpu,uint256 usedGpu,uint256 usedMemory,uint256 usedStorage,uint256 usedUploadBytes,uint256 usedDownloadBytes,uint256 duration,uint256 timestamp)"
+                        "Usage(uint256 appId,uint256 providerId,string peerId,uint256 usedCpu,uint256 usedGpu,uint256 usedMemory,uint256 usedStorage,uint256 usedUploadBytes,uint256 usedDownloadBytes,uint256 duration,uint256 timestamp)"
                     ),
-                    data.providerId,
                     data.appId,
+                    data.providerId,
                     keccak256(bytes(data.peerId)),
                     data.usedCpu,
                     data.usedGpu,

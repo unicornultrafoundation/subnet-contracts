@@ -8,11 +8,11 @@ import SubnetAppStoreModule from '../ignition/modules/SubnetAppStore';
 describe("SubnetAppStore", function () {
     let subnetAppStore: SubnetAppStore;
     let subnetProvider: SubnetProvider;
-    let owner: HardhatEthersSigner, operator: HardhatEthersSigner, treasury: HardhatEthersSigner, addr1: HardhatEthersSigner, addr2: HardhatEthersSigner;
+    let owner: HardhatEthersSigner, operator: HardhatEthersSigner, treasury: HardhatEthersSigner, addr1: HardhatEthersSigner, addr2: HardhatEthersSigner, verifier: HardhatEthersSigner;
     let rewardToken: ERC20Mock;
 
     beforeEach(async function () {
-        [owner, operator, treasury, addr1, addr2] = await ethers.getSigners();
+        [owner, operator, treasury, addr1, addr2, verifier] = await ethers.getSigners();
 
         const MockErc20 = await ethers.getContractFactory("ERC20Mock");
         rewardToken = await MockErc20.deploy("Reward Token", "RT");
@@ -20,7 +20,7 @@ describe("SubnetAppStore", function () {
 
         const { proxy: subnetProviderProxy} = await ignition.deploy(SubnetProviderModule);
         subnetProvider = await ethers.getContractAt("SubnetProvider", await subnetProviderProxy.getAddress());
-        await subnetProvider.initialize();
+        await subnetProvider.initialize(verifier.address);
         await subnetProvider.registerProvider("name", "metadata", owner.address, "https://provider.com");
 
         // Deploy subnetAppStoreProxy contract
@@ -151,8 +151,8 @@ describe("SubnetAppStore", function () {
 
             const types = {
                 Usage: [
-                    { name: "providerId", type: "uint256" },
                     { name: "appId", type: "uint256" },
+                    { name: "providerId", type: "uint256" },
                     { name: "peerId", type: "string" },
                     { name: "usedCpu", type: "uint256" },
                     { name: "usedGpu", type: "uint256" },
@@ -168,8 +168,8 @@ describe("SubnetAppStore", function () {
             const signature = await owner.signTypedData(domain, types, usageData);
 
             await subnetAppStore.reportUsage(
-                usageData.providerId,
                 usageData.appId,
+                usageData.providerId,
                 usageData.peerId,
                 usageData.usedCpu,
                 usageData.usedGpu,
@@ -207,8 +207,8 @@ describe("SubnetAppStore", function () {
 
             await expect(
                 subnetAppStore.reportUsage(
-                    usageData.providerId,
                     usageData.appId,
+                    usageData.providerId,
                     usageData.peerId,
                     usageData.usedCpu,
                     usageData.usedGpu,
@@ -249,8 +249,8 @@ describe("SubnetAppStore", function () {
 
             const types = {
                 Usage: [
-                    { name: "providerId", type: "uint256" },
                     { name: "appId", type: "uint256" },
+                    { name: "providerId", type: "uint256" },
                     { name: "peerId", type: "string" },
                     { name: "usedCpu", type: "uint256" },
                     { name: "usedGpu", type: "uint256" },
@@ -267,8 +267,8 @@ describe("SubnetAppStore", function () {
 
             await expect(
                 subnetAppStore.reportUsage(
-                    usageData.providerId,
                     usageData.appId,
+                    usageData.providerId,
                     usageData.peerId,
                     usageData.usedCpu,
                     usageData.usedGpu,
@@ -319,8 +319,8 @@ describe("SubnetAppStore", function () {
 
             const types = {
                 Usage: [
-                    { name: "providerId", type: "uint256" },
                     { name: "appId", type: "uint256" },
+                    { name: "providerId", type: "uint256" },
                     { name: "peerId", type: "string" },
                     { name: "usedCpu", type: "uint256" },
                     { name: "usedGpu", type: "uint256" },
@@ -336,8 +336,8 @@ describe("SubnetAppStore", function () {
             const signature = await owner.signTypedData(domain, types, usageData);
 
             await subnetAppStore.reportUsage(
-                usageData.providerId,
                 usageData.appId,
+                usageData.providerId,
                 usageData.peerId,
                 usageData.usedCpu,
                 usageData.usedGpu,
@@ -401,8 +401,8 @@ describe("SubnetAppStore", function () {
 
             const types = {
                 Usage: [
-                    { name: "providerId", type: "uint256" },
                     { name: "appId", type: "uint256" },
+                    { name: "providerId", type: "uint256" },
                     { name: "peerId", type: "string" },
                     { name: "usedCpu", type: "uint256" },
                     { name: "usedGpu", type: "uint256" },
@@ -418,8 +418,8 @@ describe("SubnetAppStore", function () {
             const signature = await owner.signTypedData(domain, types, usageData);
 
             await subnetAppStore.reportUsage(
-                usageData.providerId,
                 usageData.appId,
+                usageData.providerId,
                 usageData.peerId,
                 usageData.usedCpu,
                 usageData.usedGpu,
@@ -435,6 +435,72 @@ describe("SubnetAppStore", function () {
             await expect(
                 subnetAppStore.claimReward(providerId, appId)
             ).to.be.revertedWith("Claim not yet unlocked");
+        });
+
+        it("should revert if the provider is jailed", async function () {
+            const providerId = 1;
+            const appId = 1;
+
+            const usageData = {
+                providerId: providerId,
+                appId: appId,
+                peerId: "peer123",
+                usedCpu: 10,
+                usedGpu: 5,
+                usedMemory: 10 * 1e9,
+                usedStorage: 20 * 1e9,
+                usedUploadBytes: 1e9, // 1 GB
+                usedDownloadBytes: 2e9, // 2 GB
+                duration: 3600, // 1 hour
+                timestamp: Math.floor(Date.now() / 1000)
+            };
+
+            const domain = {
+                name: "SubnetAppStore",
+                version: "1",
+                chainId: (await ethers.provider.getNetwork()).chainId,
+                verifyingContract: await subnetAppStore.getAddress()
+            };
+
+            const types = {
+                Usage: [
+                    { name: "appId", type: "uint256" },
+                    { name: "providerId", type: "uint256" },
+                    { name: "peerId", type: "string" },
+                    { name: "usedCpu", type: "uint256" },
+                    { name: "usedGpu", type: "uint256" },
+                    { name: "usedMemory", type: "uint256" },
+                    { name: "usedStorage", type: "uint256" },
+                    { name: "usedUploadBytes", type: "uint256" },
+                    { name: "usedDownloadBytes", type: "uint256" },
+                    { name: "duration", type: "uint256" },
+                    { name: "timestamp", type: "uint256" }
+                ]
+            };
+
+            const signature = await owner.signTypedData(domain, types, usageData);
+
+            await subnetAppStore.reportUsage(
+                usageData.appId,
+                usageData.providerId,
+                usageData.peerId,
+                usageData.usedCpu,
+                usageData.usedGpu,
+                usageData.usedMemory,
+                usageData.usedStorage,
+                usageData.usedUploadBytes,
+                usageData.usedDownloadBytes,
+                usageData.duration,
+                usageData.timestamp,
+                signature
+            );
+
+            // Jail the provider
+            await subnetProvider.connect(verifier).jailProvider(providerId);
+
+            await expect(
+                subnetAppStore.claimReward(providerId, appId)
+            ).to.be.revertedWith("Provider is jailed");
         });
     });
 
@@ -471,8 +537,8 @@ describe("SubnetAppStore", function () {
 
             const types = {
                 Usage: [
-                    { name: "providerId", type: "uint256" },
                     { name: "appId", type: "uint256" },
+                    { name: "providerId", type: "uint256" },
                     { name: "peerId", type: "string" },
                     { name: "usedCpu", type: "uint256" },
                     { name: "usedGpu", type: "uint256" },
@@ -489,8 +555,8 @@ describe("SubnetAppStore", function () {
             await subnetAppStore.setVerifierRewardRate(100); // 10%
 
             await subnetAppStore.reportUsage(
-                usageData.providerId,
                 usageData.appId,
+                usageData.providerId,
                 usageData.peerId,
                 usageData.usedCpu,
                 usageData.usedGpu,
@@ -509,6 +575,89 @@ describe("SubnetAppStore", function () {
             const verifierReward = BigInt(totalReward) * verifierRewardRate / 1000n;
 
             expect(await rewardToken.balanceOf(operator.address)).to.equal(verifierReward);
+        });
+    });
+
+    describe("Refund Provider", function () {
+        beforeEach(async function () {
+            await createApp();
+            await subnetProvider.registerProvider("provider1", "metadata1", owner.address, "https://provider1.com");
+            await subnetProvider.registerPeerNode(1, "peer123", "metadata");
+        });
+
+        it("should allow refunding the provider", async function () {
+            const providerId = 1;
+            const appId = 1;
+
+            const usageData = {
+                providerId: providerId,
+                appId: appId,
+                peerId: "peer123",
+                usedCpu: 10,
+                usedGpu: 5,
+                usedMemory: 10 * 1e9,
+                usedStorage: 20 * 1e9,
+                usedUploadBytes: 1e9, // 1 GB
+                usedDownloadBytes: 2e9, // 2 GB
+                duration: 3600, // 1 hour
+                timestamp: Math.floor(Date.now() / 1000)
+            };
+
+            const domain = {
+                name: "SubnetAppStore",
+                version: "1",
+                chainId: (await ethers.provider.getNetwork()).chainId,
+                verifyingContract: await subnetAppStore.getAddress()
+            };
+
+            const types = {
+                Usage: [
+                    { name: "appId", type: "uint256" },
+                    { name: "providerId", type: "uint256" },
+                    { name: "peerId", type: "string" },
+                    { name: "usedCpu", type: "uint256" },
+                    { name: "usedGpu", type: "uint256" },
+                    { name: "usedMemory", type: "uint256" },
+                    { name: "usedStorage", type: "uint256" },
+                    { name: "usedUploadBytes", type: "uint256" },
+                    { name: "usedDownloadBytes", type: "uint256" },
+                    { name: "duration", type: "uint256" },
+                    { name: "timestamp", type: "uint256" }
+                ]
+            };
+
+            const signature = await owner.signTypedData(domain, types, usageData);
+
+            await subnetAppStore.reportUsage(
+                usageData.appId,
+                usageData.providerId,
+                usageData.peerId,
+                usageData.usedCpu,
+                usageData.usedGpu,
+                usageData.usedMemory,
+                usageData.usedStorage,
+                usageData.usedUploadBytes,
+                usageData.usedDownloadBytes,
+                usageData.duration,
+                usageData.timestamp,
+                signature
+            );
+
+            const initialProviderBalance = await rewardToken.balanceOf(owner.address);
+
+            await subnetProvider.connect(verifier).jailProvider(providerId);
+
+            await expect(
+                subnetAppStore.refundProvider(providerId, appId)
+            )
+                .to.emit(subnetAppStore, "ProviderRefunded")
+                .withArgs(appId, providerId, 1080130000000000000n);
+
+            const finalProviderBalance = await rewardToken.balanceOf(owner.address);
+
+            const expectedRefund = 1080130000000000000n;
+
+            expect(finalProviderBalance - initialProviderBalance).to.equal(expectedRefund);
         });
     });
 });

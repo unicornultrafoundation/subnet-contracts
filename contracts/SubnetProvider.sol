@@ -3,8 +3,9 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-contract SubnetProvider is Initializable, ERC721Upgradeable {
+contract SubnetProvider is Initializable, ERC721Upgradeable, OwnableUpgradeable {
     uint256 private _tokenIds;
 
     struct PeerNode {
@@ -18,10 +19,12 @@ contract SubnetProvider is Initializable, ERC721Upgradeable {
         address operator;
         string website;
         string metadata;
+        bool isJailed; // Indicates if the provider is jailed
     }
 
     mapping(uint256 => Provider) public providers;
     mapping(uint256 => mapping(string => PeerNode)) public peerNodeRegistered; // Track registered peer nodes for each provider
+    address public verifier; // Address of the verifier
 
     event ProviderRegistered(address providerAddress, uint256 tokenId, string providerName, string metadata, address operator, string website);
     event NFTMinted(address providerAddress, uint256 tokenId);
@@ -32,9 +35,12 @@ contract SubnetProvider is Initializable, ERC721Upgradeable {
     event PeerNodeRegistered(uint256 indexed tokenId, string peerId, string metadata);
     event PeerNodeDeleted(uint256 indexed tokenId, string peerId);
     event PeerNodeUpdated(uint256 indexed tokenId, string peerId, string metadata);
+    event ProviderJailed(uint256 tokenId);
+    event ProviderUnjailed(uint256 tokenId);
 
-    function initialize() external initializer {
+    function initialize(address initialOwner) external initializer {
         __ERC721_init("SubnetProvider", "SUBNET");
+        __Ownable_init(initialOwner);
     }
 
     /**
@@ -54,7 +60,8 @@ contract SubnetProvider is Initializable, ERC721Upgradeable {
             providerName: _providerName,
             operator: _operator,
             website: _website,
-            metadata: _metadata
+            metadata: _metadata,
+            isJailed: false
         });
 
         emit ProviderRegistered(msg.sender, newItemId, _providerName, _metadata, _operator, _website);
@@ -165,6 +172,30 @@ contract SubnetProvider is Initializable, ERC721Upgradeable {
         delete peerNodeRegistered[tokenId][peerId];
 
         emit PeerNodeDeleted(tokenId, peerId);
+    }
+
+    /**
+     * @dev Jails a provider.
+     * @param tokenId ID of the provider's token.
+     */
+    function jailProvider(uint256 tokenId) public onlyOwner {
+        Provider storage provider = providers[tokenId];
+        require(!provider.isJailed, "Provider is already jailed");
+        provider.isJailed = true;
+
+        emit ProviderJailed(tokenId);
+    }
+
+    /**
+     * @dev Unjails a provider.
+     * @param tokenId ID of the provider's token.
+     */
+    function unjailProvider(uint256 tokenId) public onlyOwner {
+        Provider storage provider = providers[tokenId];
+        require(provider.isJailed, "Provider is not jailed");
+        provider.isJailed = false;
+
+        emit ProviderUnjailed(tokenId);
     }
 
     /**

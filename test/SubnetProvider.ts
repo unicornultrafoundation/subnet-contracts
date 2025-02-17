@@ -6,14 +6,14 @@ import SubnetProviderModule from '../ignition/modules/SubnetProvider';
 
 describe("SubnetProvider", function () {
     let subnetProvider: SubnetProvider;
-    let owner: HardhatEthersSigner, addr1: HardhatEthersSigner, addr2: HardhatEthersSigner;
+    let owner: HardhatEthersSigner, addr1: HardhatEthersSigner, addr2: HardhatEthersSigner, verifier: HardhatEthersSigner;
 
     beforeEach(async function () {
-        [owner, addr1, addr2] = await ethers.getSigners();
+        [owner, addr1, addr2, verifier] = await ethers.getSigners();
 
-        const { proxy} = await ignition.deploy(SubnetProviderModule);
+        const { proxy } = await ignition.deploy(SubnetProviderModule);
         subnetProvider = await ethers.getContractAt("SubnetProvider", await proxy.getAddress());
-        await subnetProvider.initialize();
+        await subnetProvider.initialize(verifier.address);
     });
 
     it("should register a new provider and mint an NFT", async function () {
@@ -223,5 +223,69 @@ describe("SubnetProvider", function () {
 
         const peerNode = await subnetProvider.getPeerNode(1, peerId);
         expect(peerNode.isRegistered).to.equal(false);
+    });
+
+    it("should jail a provider", async function () {
+        const providerName = "Provider1";
+        const metadata = "Metadata1";
+        const operator = addr1.address;
+        const website = "https://provider1.com";
+
+        await subnetProvider.connect(addr1).registerProvider(providerName, metadata, operator, website);
+
+        await expect(subnetProvider.connect(verifier).jailProvider(1))
+            .to.emit(subnetProvider, "ProviderJailed")
+            .withArgs(1);
+
+        const provider = await subnetProvider.getProvider(1);
+        expect(provider.isJailed).to.equal(true);
+    });
+
+    it("should revert if trying to re-jail a provider", async function () {
+        const providerName = "Provider1";
+        const metadata = "Metadata1";
+        const operator = addr1.address;
+        const website = "https://provider1.com";
+
+        await subnetProvider.connect(addr1).registerProvider(providerName, metadata, operator, website);
+
+        await subnetProvider.connect(verifier).jailProvider(1);
+
+        await expect(subnetProvider.connect(verifier).jailProvider(1))
+            .to.be.revertedWith("Provider is already jailed");
+    });
+
+    it("should unjail a provider", async function () {
+        const providerName = "Provider1";
+        const metadata = "Metadata1";
+        const operator = addr1.address;
+        const website = "https://provider1.com";
+
+        await subnetProvider.connect(addr1).registerProvider(providerName, metadata, operator, website);
+
+        await subnetProvider.connect(verifier).jailProvider(1);
+
+        await expect(subnetProvider.connect(verifier).unjailProvider(1))
+            .to.emit(subnetProvider, "ProviderUnjailed")
+            .withArgs(1);
+
+        const provider = await subnetProvider.getProvider(1);
+        expect(provider.isJailed).to.equal(false);
+    });
+
+    it("should revert if trying to re-unjail a provider", async function () {
+        const providerName = "Provider1";
+        const metadata = "Metadata1";
+        const operator = addr1.address;
+        const website = "https://provider1.com";
+
+        await subnetProvider.connect(addr1).registerProvider(providerName, metadata, operator, website);
+
+        await subnetProvider.connect(verifier).jailProvider(1);
+
+        await subnetProvider.connect(verifier).unjailProvider(1);
+
+        await expect(subnetProvider.connect(verifier).unjailProvider(1))
+            .to.be.revertedWith("Provider is not jailed");
     });
 });

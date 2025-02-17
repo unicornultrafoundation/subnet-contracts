@@ -11,15 +11,15 @@ describe("SubnetProviderUptime", function () {
     let subnetProviderUptime: SubnetProviderUptime;
     let subnetProvider: SubnetProvider;
     let rewardToken: ERC20Mock;
-    let owner: HardhatEthersSigner, addr1: HardhatEthersSigner, addr2: HardhatEthersSigner;
+    let owner: HardhatEthersSigner, addr1: HardhatEthersSigner, addr2: HardhatEthersSigner, verifier:HardhatEthersSigner;
 
     beforeEach(async function () {
-        [owner, addr1, addr2] = await ethers.getSigners();
+        [owner, addr1, addr2, verifier] = await ethers.getSigners();
 
         // Deploy SubnetProvider contract
         const { proxy: subnetProviderProxy} = await ignition.deploy(UpgradeSubnetProviderModule);
         subnetProvider = await ethers.getContractAt("SubnetProvider", await subnetProviderProxy.getAddress());
-        await subnetProvider.initialize();
+        await subnetProvider.initialize(verifier.address);
 
         // Deploy ERC20Mock contract
         const ERC20MockFactory = await ethers.getContractFactory("ERC20Mock");
