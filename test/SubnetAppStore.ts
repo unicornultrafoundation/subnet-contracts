@@ -138,7 +138,8 @@ describe("SubnetAppStore", function () {
                 usedStorage: 20 * 1e9,
                 usedUploadBytes: 1e9, // 1 GB
                 usedDownloadBytes: 2e9, // 2 GB
-                duration: 3600 // 1 hour
+                duration: 3600, // 1 hour
+                timestamp: Math.floor(Date.now() / 1000)
             };
 
             const domain = {
@@ -159,7 +160,8 @@ describe("SubnetAppStore", function () {
                     { name: "usedStorage", type: "uint256" },
                     { name: "usedUploadBytes", type: "uint256" },
                     { name: "usedDownloadBytes", type: "uint256" },
-                    { name: "duration", type: "uint256" }
+                    { name: "duration", type: "uint256" },
+                    { name: "timestamp", type: "uint256" }
                 ]
             };
 
@@ -176,6 +178,7 @@ describe("SubnetAppStore", function () {
                 usageData.usedUploadBytes,
                 usageData.usedDownloadBytes,
                 usageData.duration,
+                usageData.timestamp,
                 signature
             );
 
@@ -196,7 +199,8 @@ describe("SubnetAppStore", function () {
                 usedStorage: 20 * 1e9,
                 usedUploadBytes: 1e9, // 1 GB
                 usedDownloadBytes: 2e9, // 2 GB
-                duration: 3600 // 1 hour
+                duration: 3600, // 1 hour
+                timestamp: Math.floor(Date.now() / 1000)
             };
 
             const invalidSignature = "0x2e101a65cd0b9df75ea01c2ae41a32c6069ad5577aa1d5ddefd57521bc533ee1162f63b2ebad37b9a11899f1dcb0fd734793ecccd901b791f303a60db4a65a3a1b";
@@ -213,6 +217,7 @@ describe("SubnetAppStore", function () {
                     usageData.usedUploadBytes,
                     usageData.usedDownloadBytes,
                     usageData.duration,
+                    usageData.timestamp,
                     invalidSignature
                 )
             ).to.be.revertedWith("Invalid app owner or operator signature");
@@ -231,7 +236,8 @@ describe("SubnetAppStore", function () {
                 usedStorage: 2000 * 1e9,
                 usedUploadBytes: 1000e9, // 1000 GB
                 usedDownloadBytes: 2000e9, // 2000 GB
-                duration: 3600 // 1 hour
+                duration: 3600, // 1 hour
+                timestamp: Math.floor(Date.now() / 1000)
             };
 
             const domain = {
@@ -252,7 +258,8 @@ describe("SubnetAppStore", function () {
                     { name: "usedStorage", type: "uint256" },
                     { name: "usedUploadBytes", type: "uint256" },
                     { name: "usedDownloadBytes", type: "uint256" },
-                    { name: "duration", type: "uint256" }
+                    { name: "duration", type: "uint256" },
+                    { name: "timestamp", type: "uint256" }
                 ]
             };
 
@@ -270,6 +277,7 @@ describe("SubnetAppStore", function () {
                     usageData.usedUploadBytes,
                     usageData.usedDownloadBytes,
                     usageData.duration,
+                    usageData.timestamp,
                     signature
                 )
             ).to.be.revertedWith("Insufficient budget");
@@ -298,7 +306,8 @@ describe("SubnetAppStore", function () {
                 usedStorage: 20 * 1e9,
                 usedUploadBytes: 1e9, // 1 GB
                 usedDownloadBytes: 2e9, // 2 GB
-                duration: 3600 // 1 hour
+                duration: 3600, // 1 hour
+                timestamp: Math.floor(Date.now() / 1000)
             };
 
             const domain = {
@@ -319,7 +328,8 @@ describe("SubnetAppStore", function () {
                     { name: "usedStorage", type: "uint256" },
                     { name: "usedUploadBytes", type: "uint256" },
                     { name: "usedDownloadBytes", type: "uint256" },
-                    { name: "duration", type: "uint256" }
+                    { name: "duration", type: "uint256" },
+                    { name: "timestamp", type: "uint256" }
                 ]
             };
 
@@ -336,6 +346,7 @@ describe("SubnetAppStore", function () {
                 usageData.usedUploadBytes,
                 usageData.usedDownloadBytes,
                 usageData.duration,
+                usageData.timestamp,
                 signature
             );
 
@@ -377,7 +388,8 @@ describe("SubnetAppStore", function () {
                 usedStorage: 20 * 1e9,
                 usedUploadBytes: 1e9, // 1 GB
                 usedDownloadBytes: 2e9, // 2 GB,
-                duration: 3600 // 1 hour
+                duration: 3600, // 1 hour
+                timestamp: Math.floor(Date.now() / 1000)
             };
 
             const domain = {
@@ -398,7 +410,8 @@ describe("SubnetAppStore", function () {
                     { name: "usedStorage", type: "uint256" },
                     { name: "usedUploadBytes", type: "uint256" },
                     { name: "usedDownloadBytes", type: "uint256" },
-                    { name: "duration", type: "uint256" }
+                    { name: "duration", type: "uint256" },
+                    { name: "timestamp", type: "uint256" }
                 ]
             };
 
@@ -415,6 +428,7 @@ describe("SubnetAppStore", function () {
                 usageData.usedUploadBytes,
                 usageData.usedDownloadBytes,
                 usageData.duration,
+                usageData.timestamp,
                 signature
             );
 
@@ -444,7 +458,8 @@ describe("SubnetAppStore", function () {
                 usedStorage: 20 * 1e9,
                 usedUploadBytes: 1e9, // 1 GB
                 usedDownloadBytes: 2e9, // 2 GB
-                duration: 3600 // 1 hour
+                duration: 3600, // 1 hour
+                timestamp: Math.floor(Date.now() / 1000)
             };
 
             const domain = {
@@ -465,7 +480,8 @@ describe("SubnetAppStore", function () {
                     { name: "usedStorage", type: "uint256" },
                     { name: "usedUploadBytes", type: "uint256" },
                     { name: "usedDownloadBytes", type: "uint256" },
-                    { name: "duration", type: "uint256" }
+                    { name: "duration", type: "uint256" },
+                    { name: "timestamp", type: "uint256" }
                 ]
             };
 
@@ -483,6 +499,7 @@ describe("SubnetAppStore", function () {
                 usageData.usedUploadBytes,
                 usageData.usedDownloadBytes,
                 usageData.duration,
+                usageData.timestamp,
                 signature
             );
 

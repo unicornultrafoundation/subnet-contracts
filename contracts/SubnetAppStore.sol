@@ -59,6 +59,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         uint256 usedUploadBytes;
         uint256 usedDownloadBytes;
         uint256 duration;
+        uint256 timestamp; // Timestamp of the usage report
     }
 
     // State variables
@@ -98,6 +99,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         uint256 usedUploadBytes,
         uint256 usedDownloadBytes,
         uint256 duration,
+        uint256 timestamp,
         uint256 reward
     );
     event BudgetDeposited(uint256 indexed appId, uint256 amount);
@@ -408,6 +410,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
      * @param usedUploadBytes The total uploaded data (in bytes) reported by the node.
      * @param usedDownloadBytes The total downloaded data (in bytes) reported by the node.
      * @param duration The duration (in seconds) the node worked.
+     * @param timestamp The timestamp of the usage report.
      * @param signature The EIP-712 signature from the application owner or operator validating the usage data.
      */
     function reportUsage(
@@ -421,6 +424,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         uint256 usedUploadBytes,
         uint256 usedDownloadBytes,
         uint256 duration,
+        uint256 timestamp,
         bytes memory signature
     ) external {
         // Validate the application ID and other inputs
@@ -446,7 +450,8 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
             usedStorage: usedStorage,
             usedUploadBytes: usedUploadBytes,
             usedDownloadBytes: usedDownloadBytes,
-            duration: duration
+            duration: duration,
+            timestamp: timestamp
         });
         bytes32 structHash = _hashTypedDataV4(_hashUpdateUsageData(data));
         require(!usedMessageHashes[structHash], "Replay attack detected");
@@ -503,6 +508,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
             usedUploadBytes,
             usedDownloadBytes,
             duration,
+            timestamp,
             reward
         );
     }
@@ -597,7 +603,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
             keccak256(
                 abi.encode(
                     keccak256(
-                        "Usage(uint256 providerId,uint256 appId,string peerId,uint256 usedCpu,uint256 usedGpu,uint256 usedMemory,uint256 usedStorage,uint256 usedUploadBytes,uint256 usedDownloadBytes,uint256 duration)"
+                        "Usage(uint256 providerId,uint256 appId,string peerId,uint256 usedCpu,uint256 usedGpu,uint256 usedMemory,uint256 usedStorage,uint256 usedUploadBytes,uint256 usedDownloadBytes,uint256 duration,uint256 timestamp)"
                     ),
                     data.providerId,
                     data.appId,
@@ -608,7 +614,8 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
                     data.usedStorage,
                     data.usedUploadBytes,
                     data.usedDownloadBytes,
-                    data.duration
+                    data.duration,
+                    data.timestamp
                 )
             );
     }
