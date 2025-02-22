@@ -585,9 +585,20 @@ describe("SubnetAppStore", function () {
             );
 
 
+            await subnetAppStore.claimReward(providerId, appId);
+
+            await ethers.provider.send("evm_increaseTime", [30 * 24 * 60 * 60]);
+            await ethers.provider.send("evm_mine", []);
+
+            await subnetAppStore.claimReward(providerId, appId);
+
+
             const verifierRewardRate = await subnetAppStore.verifierRewardRate();
             const totalReward = 1080130000000000000n;
-            const verifierReward = BigInt(totalReward) * verifierRewardRate / 1000n;
+            const feeRate = await subnetAppStore.feeRate();
+            const protocolFee = BigInt(totalReward) * feeRate / 1000n;
+
+            const verifierReward = (BigInt(totalReward) - protocolFee) * verifierRewardRate / 1000n;
 
             expect(await rewardToken.balanceOf(operator.address)).to.equal(verifierReward);
         });

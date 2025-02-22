@@ -52,7 +52,6 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         uint256 usedUploadBytes;
         uint256 usedDownloadBytes;
         uint256 duration;
-        uint256 reward;
         uint256 timestamp; // Timestamp of the usage report
     }
 
@@ -468,8 +467,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
             usedUploadBytes: usedUploadBytes,
             usedDownloadBytes: usedDownloadBytes,
             duration: duration,
-            timestamp: timestamp,
-            reward: reward
+            timestamp: timestamp
         });
         bytes32 structHash = _hashTypedDataV4(_hashUpdateUsageData(data));
         require(!usedMessageHashes[structHash], "Replay attack detected");
@@ -485,21 +483,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         // Ensure sufficient budget
         require(app.budget >= app.spentBudget + reward, "Insufficient budget");
 
-        // Calculate verifier reward if signer is the operator and not the owner
-        uint256 verifierReward = 0;
-        if (signer == app.verifier && verifierRewardRate > 0) {
-            verifierReward = (reward * verifierRewardRate) / 1000;
-            if (verifierReward > 0) {
-                // Transfer verifier reward to the operator
-                IERC20(app.paymentToken).safeTransfer(
-                    app.verifier,
-                    verifierReward
-                );
-                emit VerifierRewardClaimed(app.verifier, verifierReward);
-            }
-        }
-
-        pendingRewards[appId][providerId] += reward - verifierReward;
+        pendingRewards[appId][providerId] += reward;
         // Update the app's spent budget
         app.spentBudget += reward;
         emit UsageReported(
