@@ -600,6 +600,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
     function refundProvider(uint256 appId, uint256 providerId) external {
         App storage app = apps[appId];
         require(appId > 0 && appId <= appCount, "Application ID is invalid");
+        require(app.owner == msg.sender, "Only the owner can request a refund");
         uint256 reward = pendingRewards[appId][providerId];
         reward += lockedRewards[appId][providerId].reward;
         require(reward > 0, "No rewards");

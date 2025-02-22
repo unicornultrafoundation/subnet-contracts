@@ -675,7 +675,7 @@ describe("SubnetAppStore", function () {
             await subnetProvider.connect(verifier).jailProvider(providerId);
 
             await expect(
-                subnetAppStore.refundProvider(providerId, appId)
+                subnetAppStore.refundProvider(appId, providerId)
             )
                 .to.emit(subnetAppStore, "ProviderRefunded")
                 .withArgs(appId, providerId, 1080130000000000000n);
@@ -686,6 +686,83 @@ describe("SubnetAppStore", function () {
             const expectedRefund = 1080130000000000000n;
 
             expect(finalProviderBalance + initialProviderBalance).to.equal(expectedRefund);
+        });
+
+
+        it("should revert if there are no rewards to refund", async function () {
+            const providerId = 1;
+            const appId = 1;
+
+            await subnetProvider.connect(verifier).jailProvider(providerId);
+
+            await expect(
+                subnetAppStore.refundProvider(appId, providerId)
+            ).to.be.revertedWith("No rewards");
+        });
+
+        it("should revert if called by non-owner", async function () {
+            const providerId = 1;
+            const appId = 1;
+
+            const usageData = {
+                providerId: providerId,
+                appId: appId,
+                peerId: "peer123",
+                usedCpu: 10,
+                usedGpu: 5,
+                usedMemory: 10 * 1e9,
+                usedStorage: 20 * 1e9,
+                usedUploadBytes: 1e9, // 1 GB
+                usedDownloadBytes: 2e9, // 2 GB
+                duration: 3600, // 1 hour
+                timestamp: Math.floor(Date.now() / 1000)
+            };
+
+            const domain = {
+                name: "SubnetAppStore",
+                version: "1",
+                chainId: (await ethers.provider.getNetwork()).chainId,
+                verifyingContract: await subnetAppStore.getAddress()
+            };
+
+            const types = {
+                Usage: [
+                    { name: "appId", type: "uint256" },
+                    { name: "providerId", type: "uint256" },
+                    { name: "peerId", type: "string" },
+                    { name: "usedCpu", type: "uint256" },
+                    { name: "usedGpu", type: "uint256" },
+                    { name: "usedMemory", type: "uint256" },
+                    { name: "usedStorage", type: "uint256" },
+                    { name: "usedUploadBytes", type: "uint256" },
+                    { name: "usedDownloadBytes", type: "uint256" },
+                    { name: "duration", type: "uint256" },
+                    { name: "timestamp", type: "uint256" }
+                ]
+            };
+
+            const signature = await owner.signTypedData(domain, types, usageData);
+
+            await subnetAppStore.reportUsage(
+                usageData.appId,
+                usageData.providerId,
+                usageData.peerId,
+                usageData.usedCpu,
+                usageData.usedGpu,
+                usageData.usedMemory,
+                usageData.usedStorage,
+                usageData.usedUploadBytes,
+                usageData.usedDownloadBytes,
+                usageData.duration,
+                usageData.timestamp,
+                signature
+            );
+
+            await subnetProvider.connect(verifier).jailProvider(providerId);
+
+            await expect(
+                subnetAppStore.connect(addr1).refundProvider(appId, providerId)
+            ).to.be.revertedWith("Only the owner can request a refund");
         });
     });
 });
