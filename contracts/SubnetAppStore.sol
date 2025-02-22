@@ -21,6 +21,8 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
     string private constant SIGNING_DOMAIN = "SubnetAppStore";
     string private constant SIGNATURE_VERSION = "1";
 
+    uint256 public rewardLockDuration; // Duration for which rewards are locked
+
     // Struct representing an application
     struct App {
         string peerId;
@@ -128,12 +130,14 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
      * @param initialOwner Address of the initial owner of the contract.
      * @param _treasury Address of the treasury to collect fees.
      * @param _feeRate Fee rate as parts per thousand.
+     * @param _rewardLockDuration Duration for which rewards are locked.
      */
     function initialize(
         address _subnetProvider,
         address initialOwner,
         address _treasury,
-        uint256 _feeRate
+        uint256 _feeRate,
+        uint256 _rewardLockDuration
     ) external initializer {
         require(
             _subnetProvider != address(0),
@@ -142,6 +146,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         subnetProvider = SubnetProvider(_subnetProvider);
         treasury = _treasury;
         feeRate = _feeRate;
+        rewardLockDuration = _rewardLockDuration;
         __Ownable_init(initialOwner);
         __EIP712_init(SIGNING_DOMAIN, SIGNATURE_VERSION);
     }
@@ -176,6 +181,14 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
             "Verifier reward rate must be <= 1000 (100%)"
         );
         verifierRewardRate = _verifierRewardRate;
+    }
+
+    /**
+     * @dev Updates the reward lock duration.
+     * @param _rewardLockDuration The new reward lock duration in seconds.
+     */
+    function setRewardLockDuration(uint256 _rewardLockDuration) external onlyOwner {
+        rewardLockDuration = _rewardLockDuration;
     }
 
     /**
@@ -526,7 +539,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         }
 
         if (pendingRewards[appId][providerId] > 0) {
-            uint256 unlockTime = block.timestamp + 30 days;
+            uint256 unlockTime = block.timestamp + rewardLockDuration;
             uint256 reward = pendingRewards[appId][providerId];
             lockedRewards[appId][providerId] = LockedReward({
                 reward: reward,

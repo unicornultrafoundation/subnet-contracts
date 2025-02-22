@@ -17,16 +17,15 @@ describe("SubnetAppStore", function () {
         const MockErc20 = await ethers.getContractFactory("ERC20Mock");
         rewardToken = await MockErc20.deploy("Reward Token", "RT");
 
-
-        const { proxy: subnetProviderProxy} = await ignition.deploy(SubnetProviderModule);
+        const { proxy: subnetProviderProxy } = await ignition.deploy(SubnetProviderModule);
         subnetProvider = await ethers.getContractAt("SubnetProvider", await subnetProviderProxy.getAddress());
         await subnetProvider.initialize(verifier.address);
         await subnetProvider.registerProvider("name", "metadata", owner.address, "https://provider.com");
 
         // Deploy subnetAppStoreProxy contract
-        const { proxy: subnetAppStoreProxy} = await ignition.deploy(SubnetAppStoreModule);
+        const { proxy: subnetAppStoreProxy } = await ignition.deploy(SubnetAppStoreModule);
         subnetAppStore = await ethers.getContractAt("SubnetAppStore", await subnetAppStoreProxy.getAddress());
-        await subnetAppStore.initialize(await subnetProvider.getAddress(), owner.address, treasury.address, 50); // Fee rate: 5%
+        await subnetAppStore.initialize(await subnetProvider.getAddress(), owner.address, treasury.address, 50, 30 * 24 * 60 * 60); // Fee rate: 5%, Reward lock duration: 30 days
         await rewardToken.mint(owner.address, ethers.parseEther("10000"));
         await rewardToken.approve(subnetAppStore.getAddress(), ethers.parseEther("10000"));
     });
@@ -363,7 +362,7 @@ describe("SubnetAppStore", function () {
                 subnetAppStore.claimReward(providerId, appId)
             )
                 .to.emit(subnetAppStore, "RewardClaimed")
-                .withArgs(appId, providerId, 1080130000000000000n, block!.timestamp  + 1  + 30 * 24 * 60 * 60);
+                .withArgs(appId, providerId, 1080130000000000000n, block!.timestamp + 1 + 30 * 24 * 60 * 60);
 
             // Simulate another 30 days passing to unlock the reward
             await ethers.provider.send("evm_increaseTime", [30 * 24 * 60 * 60]);
