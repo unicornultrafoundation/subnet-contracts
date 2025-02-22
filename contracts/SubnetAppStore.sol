@@ -40,13 +40,6 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         address paymentToken; // ERC20 token for payment
     }
 
-    // Struct for tracking node-specific resource usage
-    struct Deployment {
-        bool isRegistered;
-        uint256 lastClaimTime; // Last time reward was claimed
-        uint256 pendingReward; // Pending reward to be claimed
-    }
-
     // Struct representing resource usage for a claim
     struct Usage {
         uint256 providerId;
@@ -59,7 +52,14 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         uint256 usedUploadBytes;
         uint256 usedDownloadBytes;
         uint256 duration;
+        uint256 reward;
         uint256 timestamp; // Timestamp of the usage report
+    }
+
+    struct LockedReward {
+        uint256 reward;
+        uint256 unlockTime;
+        address verifier;
     }
 
     // State variables
@@ -67,11 +67,12 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
     mapping(uint256 => App) public apps; // Map app ID to App struct
     mapping(string => uint256) public symbolToAppId; // Map symbol to app ID
     SubnetProvider public subnetProvider; // Reference to the Subnet Provider contract
-    mapping(uint256 => mapping(uint256 => Deployment)) public deployments; // Map app ID and provider ID to deployment-specific data
     mapping(bytes32 => bool) public usedMessageHashes; // Track used message hashes to prevent replay attacks
     address public treasury; // Treasury address
     uint256 public feeRate; // Fee rate in parts per thousand (e.g., 50 = 5%)
     uint256 public verifierRewardRate; // Reward rate for verifiers in parts per thousand (e.g., 10 = 1%)
+    mapping(uint256 => mapping(uint256 => uint256)) public pendingRewards; // Pending rewards for deployments
+    mapping(uint256 => mapping(uint256 => LockedReward)) public lockedRewards; // Pending rewards for deployments
 
     // Events
     event AppCreated(
@@ -84,7 +85,16 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
     event RewardClaimed(
         uint256 indexed appId,
         uint256 indexed providerId,
-        uint256 reward
+        uint256 reward,
+        uint256 unlockTime
+    );
+    event LockedRewardPaid(
+        uint256 indexed appId,
+        uint256 reward,
+        uint256 protocolFees,
+        uint256 verifierFees,
+        address indexed provider,
+        address indexed verifier
     );
     event DeploymentCreated(uint256 indexed providerId, uint256 indexed appId);
     event DeploymentClosed(uint256 indexed providerId, uint256 indexed appId);
@@ -433,13 +443,18 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         require(appId > 0 && appId <= appCount, "Invalid App ID");
         App storage app = apps[appId];
         require(app.budget > app.spentBudget, "App budget exhausted");
-
-        // Verify provider details and node registration
-        SubnetProvider.Provider memory provider = subnetProvider.getProvider(
-            providerId
-        );
-        require(provider.tokenId != 0, "Provider inactive");
         require(subnetProvider.getPeerNode(providerId, peerId).isRegistered, "Peer node not registered");
+
+        uint256 reward = calculateReward(
+            appId,
+            usedCpu,
+            usedGpu,
+            usedMemory,
+            usedStorage,
+            usedUploadBytes,
+            usedDownloadBytes,
+            duration
+        );
 
         // Hash and verify usage data
         Usage memory data = Usage({
@@ -453,7 +468,8 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
             usedUploadBytes: usedUploadBytes,
             usedDownloadBytes: usedDownloadBytes,
             duration: duration,
-            timestamp: timestamp
+            timestamp: timestamp,
+            reward: reward
         });
         bytes32 structHash = _hashTypedDataV4(_hashUpdateUsageData(data));
         require(!usedMessageHashes[structHash], "Replay attack detected");
@@ -465,16 +481,6 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
             "Invalid app owner or operator signature"
         );
 
-        // Retrieve and calculate new usage
-        Deployment storage deployment = deployments[appId][providerId];
-        // Increment node count if the deployment is new
-        if (!deployment.isRegistered) {
-            deployment.isRegistered = true;
-            deployment.lastClaimTime = block.timestamp;
-        }
-
-        // Calculate reward
-        uint256 reward = calculateReward(appId, usedCpu, usedGpu, usedMemory, usedStorage, usedUploadBytes, usedDownloadBytes, duration);
 
         // Ensure sufficient budget
         require(app.budget >= app.spentBudget + reward, "Insufficient budget");
@@ -493,12 +499,9 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
             }
         }
 
-        // Update pending reward for deployment
-        deployment.pendingReward += (reward - verifierReward);
-
+        pendingRewards[appId][providerId] += reward - verifierReward;
         // Update the app's spent budget
         app.spentBudget += reward;
-
         emit UsageReported(
             appId,
             providerId,
@@ -523,44 +526,63 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
      * @param appId The ID of the application the node is working on.
      */
     function claimReward(uint256 providerId, uint256 appId) external {
-        // Validate the application ID and other inputs
-        require(appId > 0 && appId <= appCount, "Invalid App ID");
-
-        // Verify provider details and node registration
-        SubnetProvider.Provider memory provider = subnetProvider.getProvider(
-            providerId
-        );
-        require(provider.tokenId != 0, "Provider inactive");
+        SubnetProvider.Provider memory provider = subnetProvider.getProvider(providerId);
+        require(provider.tokenId > 0, "Provider not registered");
         require(!provider.isJailed, "Provider is jailed");
+        address providerOwner = subnetProvider.ownerOf(provider.tokenId);
+        require(providerOwner == msg.sender, "Caller is not the owner of the NFT");
 
-        // Retrieve the node's pending reward
-        Deployment storage deployment = deployments[appId][providerId];
-        uint256 reward = deployment.pendingReward;
+        LockedReward memory lockedReward = lockedRewards[appId][providerId];
+        require (lockedReward.unlockTime < block.timestamp, "Reward is locked");
 
-        // Ensure 30 days have passed since the last claim
-        require(
-            block.timestamp >= deployment.lastClaimTime + 30 days,
-            "Claim not yet unlocked"
-        );
+        if (lockedReward.reward > 0) {
+            _payLockedReward(appId, lockedReward);
+            lockedRewards[appId][providerId].reward = 0;
+            lockedRewards[appId][providerId].unlockTime = 0;
+        }
 
-        address owner = subnetProvider.ownerOf(providerId);
-        // Ensure the caller is the owner of the NFT
-        require(owner == msg.sender, "Caller is not the owner of the NFT");
+        if (pendingRewards[appId][providerId] > 0) {
+            uint256 unlockTime = block.timestamp + 30 days;
+            uint256 reward = pendingRewards[appId][providerId];
+            lockedRewards[appId][providerId] = LockedReward({
+                reward: reward,
+                unlockTime: unlockTime,
+                verifier: apps[appId].verifier
+            });
 
-        // Update the last claim time
-        deployment.lastClaimTime = block.timestamp;
+            pendingRewards[appId][providerId] = 0;
 
-        // Update budget and transfer rewards
-        uint256 fee = (reward * feeRate) / 1000;
-        uint256 netReward = reward - fee;
+            emit RewardClaimed(appId, providerId, reward, unlockTime);
+        }
 
-        IERC20(apps[appId].paymentToken).safeTransfer(treasury, fee);
-        IERC20(apps[appId].paymentToken).safeTransfer(owner, netReward);
+    }
 
-        // Reset pending reward
-        deployment.pendingReward = 0;
+    /**
+     * @dev Pays the locked reward to the provider and the verifier.
+     * @param appId The ID of the application.
+     * @param lockedReward The locked reward details.
+     */
+    function _payLockedReward(uint256 appId, LockedReward memory lockedReward) internal {
+        uint256 reward = lockedReward.reward;
+        uint256 protocolFees = 0;
+        uint256 verifierFees = 0;
 
-        emit RewardClaimed(appId, providerId, reward);
+        if (feeRate > 0 && treasury != address(0)) {
+            // Calculate protocol fees
+            protocolFees = (reward * feeRate) / 1000;
+            reward -= protocolFees;
+            IERC20(apps[appId].paymentToken).safeTransfer(treasury, protocolFees);
+        }
+
+        if (verifierRewardRate > 0 && lockedReward.verifier != address(0)) {
+            verifierFees = (reward * verifierRewardRate) / 1000;
+            reward -= verifierFees;
+            IERC20(apps[appId].paymentToken).safeTransfer(lockedReward.verifier, verifierFees);
+        }
+
+        IERC20(apps[appId].paymentToken).safeTransfer(msg.sender, reward);
+
+        emit LockedRewardPaid(appId, lockedReward.reward, protocolFees, verifierFees, msg.sender, lockedReward.verifier);
     }
 
     /**
@@ -594,21 +616,15 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
     function refundProvider(uint256 appId, uint256 providerId) external {
         App storage app = apps[appId];
         require(appId > 0 && appId <= appCount, "Application ID is invalid");
+        uint256 reward = pendingRewards[appId][providerId];
+        reward += lockedRewards[appId][providerId].reward;
+        require(reward > 0, "No rewards");
+        app.spentBudget -= reward;
 
-        SubnetProvider.Provider memory provider = subnetProvider.getProvider(providerId);
-        require(provider.isJailed, "Provider is not jailed");
+        lockedRewards[appId][providerId].reward = 0;
+        pendingRewards[appId][providerId] = 0;
 
-        Deployment storage deployment = deployments[appId][providerId];
-        uint256 pendingReward = deployment.pendingReward;
-        require(pendingReward > 0, "No pending reward to refund");
-
-        // Transfer the pending reward in ERC20 tokens from the contract to the provider owner
-        IERC20(app.paymentToken).safeTransfer(app.owner, pendingReward);
-
-        // Reset pending reward
-        deployment.pendingReward = 0;
-
-        emit ProviderRefunded(appId, providerId, pendingReward);
+        emit ProviderRefunded(appId, providerId, reward);
     }
 
     /**
@@ -685,21 +701,24 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
     }
 
     /**
-     * @dev Retrieves the usage details of a node for a specific application.
+     * @dev Retrieves the pending reward for a provider.
      * @param appId The ID of the application.
-     * @param providerId The ID of the provider (node) to fetch details for.
-     * @return deployment The Deployment struct containing the node's usage details.
+     * @param providerId The ID of the provider.
+     * @return The pending reward amount.
      */
-    function getDeployment(
-        uint256 appId,
-        uint256 providerId
-    ) external view returns (Deployment memory deployment) {
-        // Return the Deployment struct
-        return deployments[appId][providerId];
+    function getPendingReward(uint256 appId, uint256 providerId) external view returns (uint256) {
+        return pendingRewards[appId][providerId];
     }
 
-    function version() public pure returns (string memory) {
-        return "1.0.0";
+    /**
+     * @dev Retrieves the locked reward for a provider.
+     * @param appId The ID of the application.
+     * @param providerId The ID of the provider.
+     * @return The locked reward amount and unlock time.
+     */
+    function getLockedReward(uint256 appId, uint256 providerId) external view returns (LockedReward memory) {
+        LockedReward memory lockedReward = lockedRewards[appId][providerId];
+        return lockedReward;
     }
 
     /**

@@ -182,8 +182,8 @@ describe("SubnetAppStore", function () {
                 signature
             );
 
-            const deployment = await subnetAppStore.getDeployment(appId, providerId);
-            expect(deployment.isRegistered).to.equal(true);
+            const  pendingReward = await subnetAppStore.getPendingReward(appId, providerId);
+            expect(pendingReward).to.equal(1080130000000000000n);
         });
 
         it("should revert if the signature is invalid", async function () {
@@ -357,20 +357,33 @@ describe("SubnetAppStore", function () {
             const initialTreasuryBalance = await rewardToken.balanceOf(treasury.address);
             const initialNodeBalance = await rewardToken.balanceOf(owner.address);
 
+            const block = await ethers.provider.getBlock("latest");
+
             await expect(
                 subnetAppStore.claimReward(providerId, appId)
             )
                 .to.emit(subnetAppStore, "RewardClaimed")
-                .withArgs(appId, providerId, 1080130000000000000n);
+                .withArgs(appId, providerId, 1080130000000000000n, block!.timestamp  + 1  + 30 * 24 * 60 * 60);
+
+            // Simulate another 30 days passing to unlock the reward
+            await ethers.provider.send("evm_increaseTime", [30 * 24 * 60 * 60]);
+            await ethers.provider.send("evm_mine", []);
+
+            await expect(
+                subnetAppStore.claimReward(providerId, appId)
+            )
+                .to.emit(subnetAppStore, "LockedRewardPaid")
+                .withArgs(appId, 1080130000000000000n, 54006500000000000n, 0, owner.address, operator.address);
 
             const finalTreasuryBalance = await rewardToken.balanceOf(treasury.address);
             const finalNodeBalance = await rewardToken.balanceOf(owner.address);
 
             const expectedReward = 1080130000000000000n;
-            const fee = expectedReward * 50n/1000n;
-            const netReward = expectedReward - fee;
+            const fee = expectedReward * 50n / 1000n;
+            const verifierFee = 0n;
+            const netReward = expectedReward - fee - verifierFee;
 
-            expect(finalTreasuryBalance- initialTreasuryBalance).to.equal(fee);
+            expect(finalTreasuryBalance - initialTreasuryBalance).to.equal(fee);
             expect(finalNodeBalance - initialNodeBalance).to.equal(netReward);
         });
 
@@ -432,9 +445,11 @@ describe("SubnetAppStore", function () {
                 signature
             );
 
+            await subnetAppStore.claimReward(providerId, appId)
+
             await expect(
                 subnetAppStore.claimReward(providerId, appId)
-            ).to.be.revertedWith("Claim not yet unlocked");
+            ).to.be.revertedWith("Reward is locked");
         });
 
         it("should revert if the provider is jailed", async function () {
@@ -643,7 +658,8 @@ describe("SubnetAppStore", function () {
                 signature
             );
 
-            const initialProviderBalance = await rewardToken.balanceOf(owner.address);
+            let app = await subnetAppStore.getApp(usageData.appId);
+            const initialProviderBalance = app.spentBudget;
 
             await subnetProvider.connect(verifier).jailProvider(providerId);
 
@@ -653,11 +669,12 @@ describe("SubnetAppStore", function () {
                 .to.emit(subnetAppStore, "ProviderRefunded")
                 .withArgs(appId, providerId, 1080130000000000000n);
 
-            const finalProviderBalance = await rewardToken.balanceOf(owner.address);
+            app = await subnetAppStore.getApp(usageData.appId);    
+            const finalProviderBalance = app.spentBudget;
 
             const expectedRefund = 1080130000000000000n;
 
-            expect(finalProviderBalance - initialProviderBalance).to.equal(expectedRefund);
+            expect(finalProviderBalance + initialProviderBalance).to.equal(expectedRefund);
         });
     });
 });
