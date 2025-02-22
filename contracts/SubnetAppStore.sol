@@ -25,7 +25,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
 
     // Struct representing an application
     struct App {
-        string peerId;
+        string[] peerIds;
         address owner; // Application owner
         address operator; // Application operator
         address verifier; // Verifier address
@@ -197,7 +197,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
      *
      * @param name The name of the application.
      * @param symbol A unique symbol representing the application.
-     * @param peerId A unique identifier for the application's network peer.
+     * @param peerIds A unique identifier for the application's network peer.
      * @param budget The total budget allocated for the application.
      * @param pricePerCpu The payment per unit of CPU used.
      * @param pricePerGpu The payment per unit of GPU used.
@@ -212,7 +212,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
     function createApp(
         string memory name,
         string memory symbol,
-        string memory peerId,
+        string[] memory peerIds,
         uint256 budget,
         uint256 pricePerCpu,
         uint256 pricePerGpu,
@@ -229,7 +229,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         appCount++;
 
         App storage app = apps[appCount];
-        app.peerId = peerId;
+        app.peerIds = peerIds;
         app.owner = msg.sender;
         app.operator = operator;
         app.verifier = verifier;
@@ -403,9 +403,9 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
      * Only the owner or operator of the application can perform the update.
      *
      * @param appId The ID of the application to update.
-     * @param peerId The new peerId.
+     * @param peerIds The new peerIds.
      */
-    function updatePeerId(uint256 appId, string memory peerId) public {
+    function updatePeerId(uint256 appId, string[] memory peerIds) public {
         App storage app = apps[appId];
 
         require(
@@ -414,7 +414,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         );
         require(appId > 0 && appId <= appCount, "Application ID is invalid");
 
-        app.peerId = peerId;
+        app.peerIds = peerIds;
 
         emit AppUpdated(appId);
     }

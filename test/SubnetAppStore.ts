@@ -36,7 +36,7 @@ describe("SubnetAppStore", function () {
         await subnetAppStore.createApp(
             "TestApp",
             "TAPP",
-            "peer123",
+            ["peer123"],
             appBudget,
             ethers.parseEther("0.00001"), // pricePerCpu
             ethers.parseEther("0.00001"), // pricePerGpu
@@ -53,10 +53,10 @@ describe("SubnetAppStore", function () {
     it("should allow creating a new application", async function () {
         await createApp();
 
-        const app = await subnetAppStore.apps(1);
+        const app = await subnetAppStore.getApp(1);
         expect(app.name).to.equal("TestApp");
         expect(app.symbol).to.equal("TAPP");
-        expect(app.peerId).to.equal("peer123");
+        expect(app.peerIds[0]).to.equal("peer123");
         expect(app.budget).to.equal(ethers.parseEther("10"));
         expect(app.owner).to.equal(owner.address);
         expect(app.operator).to.equal(operator.address);
@@ -98,21 +98,21 @@ describe("SubnetAppStore", function () {
         });
 
         it("should allow the owner to update the peerId", async function () {
-            await subnetAppStore.connect(owner).updatePeerId(1, "newPeerId");
+            await subnetAppStore.connect(owner).updatePeerId(1, ["newPeerId"]);
             const app = await subnetAppStore.getApp(1);
-            expect(app.peerId).to.equal("newPeerId");
+            expect(app.peerIds[0]).to.equal("newPeerId");
         });
 
         it("should allow the operator to update the peerId", async function () {
             await subnetAppStore.connect(owner).updateOperator(1, addr1.address);
-            await subnetAppStore.connect(addr1).updatePeerId(1, "newPeerId");
+            await subnetAppStore.connect(addr1).updatePeerId(1, ["newPeerId"]);
             const app = await subnetAppStore.getApp(1);
-            expect(app.peerId).to.equal("newPeerId");
+            expect(app.peerIds[0]).to.equal("newPeerId");
         });
 
         it("should not allow others to update the peerId", async function () {
             await expect(
-                subnetAppStore.connect(addr2).updatePeerId(1, "newPeerId")
+                subnetAppStore.connect(addr2).updatePeerId(1, ["newPeerId"])
             ).to.be.revertedWith("Only the owner or operator can update the peerId");
         });
     });
