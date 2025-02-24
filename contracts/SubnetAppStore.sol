@@ -740,7 +740,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         uint256 usedUploadBytes,
         uint256 usedDownloadBytes,
         uint256 duration
-    ) public view returns (uint256 reward) {
+    ) public view virtual returns (uint256 reward) {
         App memory app = apps[appId];
         // Bandwidth usage (independent of duration)
         uint256 bandwidthGB = (usedUploadBytes + usedDownloadBytes) / 1e9;

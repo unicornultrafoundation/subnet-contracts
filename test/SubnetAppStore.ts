@@ -182,7 +182,7 @@ describe("SubnetAppStore", function () {
             );
 
             const  pendingReward = await subnetAppStore.getPendingReward(appId, providerId);
-            expect(pendingReward).to.equal(1080130000000000000n);
+            expect(pendingReward).to.equal(1080130000180000000n);
         });
 
         it("should revert if the signature is invalid", async function () {
@@ -362,7 +362,7 @@ describe("SubnetAppStore", function () {
                 subnetAppStore.claimReward(providerId, appId)
             )
                 .to.emit(subnetAppStore, "RewardClaimed")
-                .withArgs(appId, providerId, 1080130000000000000n, block!.timestamp + 1 + 30 * 24 * 60 * 60);
+                .withArgs(appId, providerId, 1080130000180000000n, block!.timestamp + 1 + 30 * 24 * 60 * 60);
 
             // Simulate another 30 days passing to unlock the reward
             await ethers.provider.send("evm_increaseTime", [30 * 24 * 60 * 60]);
@@ -372,12 +372,12 @@ describe("SubnetAppStore", function () {
                 subnetAppStore.claimReward(providerId, appId)
             )
                 .to.emit(subnetAppStore, "LockedRewardPaid")
-                .withArgs(appId, 1080130000000000000n, 54006500000000000n, 0, owner.address, operator.address);
+                .withArgs(appId, 1080130000180000000n, 54006500009000000n, 0, owner.address, operator.address);
 
             const finalTreasuryBalance = await rewardToken.balanceOf(treasury.address);
             const finalNodeBalance = await rewardToken.balanceOf(owner.address);
 
-            const expectedReward = 1080130000000000000n;
+            const expectedReward = 1080130000180000000n;
             const fee = expectedReward * 50n / 1000n;
             const verifierFee = 0n;
             const netReward = expectedReward - fee - verifierFee;
@@ -593,7 +593,7 @@ describe("SubnetAppStore", function () {
 
 
             const verifierRewardRate = await subnetAppStore.verifierRewardRate();
-            const totalReward = 1080130000000000000n;
+            const totalReward = 1080130000180000000n;
             const feeRate = await subnetAppStore.feeRate();
             const protocolFee = BigInt(totalReward) * feeRate / 1000n;
 
@@ -677,12 +677,12 @@ describe("SubnetAppStore", function () {
                 subnetAppStore.refundProvider(appId, providerId)
             )
                 .to.emit(subnetAppStore, "ProviderRefunded")
-                .withArgs(appId, providerId, 1080130000000000000n);
+                .withArgs(appId, providerId, 1080130000180000000n);
 
             app = await subnetAppStore.getApp(usageData.appId);    
             const finalProviderBalance = app.spentBudget;
 
-            const expectedRefund = 1080130000000000000n;
+            const expectedRefund = 1080130000180000000n;
 
             expect(finalProviderBalance + initialProviderBalance).to.equal(expectedRefund);
         });

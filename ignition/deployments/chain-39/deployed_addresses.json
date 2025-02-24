@@ -1,3 +1,14 @@
 {
-  "SubnetStakingPoolFactory#SubnetStakingPoolFactory": "0x180A9CecB99c555b879B02AACFfD8799E8D59293"
+  "SubnetStakingPoolFactory#SubnetStakingPoolFactory": "0x180A9CecB99c555b879B02AACFfD8799E8D59293",
+  "SubnetProvider#SubnetProvider": "0x908162F8E87D8F10a0C9ff6a0DbF7d09Cfb15a15",
+  "SubnetProvider#TransparentUpgradeableProxy": "0x251240b2Cfbb877Da294893939A8fCaACB414273",
+  "SubnetProvider#ProxyAdmin": "0x542557Be370554b1140Da93825a0Cf6F3c3baF72",
+  "SubnetAppStore#SubnetAppStore": "0x085C4c97d210C8dc151F28c0A59aEbcB9dC54cFE",
+  "SubnetAppStore#TransparentUpgradeableProxy": "0x5F49358D7717D001Cd5B8bF5613b9bc14cE3dBd2",
+  "SubnetAppStore#ProxyAdmin": "0x1E5c3D1069ca54DF6EF0A51B2A11CE814D4c3DC0",
+  "SubnetVerifier#SubnetVerifier": "0xD64b0C11dFB2b069f17d4B089376706ebE04Dcec",
+  "SubnetVerifier#TransparentUpgradeableProxy": "0x50a734427B851aec24F28326818B869ec83D1732",
+  "SubnetVerifier#ProxyAdmin": "0x160C82208FBAc6E2Ad529F758848C7729c45a707",
+  "SubnetToken#SubnetToken": "0x49E51211bEb16cD2fDcF3FFe577caA90a8566a2A",
+  "SubnetAppStoreV2#SubnetAppStoreV2": "0x406f2Ea106D821B3aEeCe0F4F746B0d089dBed60"
 }
