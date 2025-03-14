@@ -184,7 +184,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
      * @param website The new website of the verifier.
      * @param metadata The new metadata of the verifier.
      */
-    function updateVerifierInfo(
+    function updateInfo(
         address verifier,
         string memory name,
         string memory website,
@@ -219,7 +219,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
      * @param verifier The address of the verifier.
      * @param slashPercentage The percentage of the stake to slash.
      */
-    function slashVerifier(address verifier, uint256 slashPercentage) external onlyOwner {
+    function slash(address verifier, uint256 slashPercentage) external onlyOwner {
         require(verifiers[verifier].isRegistered, "Verifier not registered");
         require(slashPercentage > 0 && slashPercentage <= 100, "Invalid slash percentage");
         require(!verifiers[verifier].isSlashed, "Verifier already slashed");
@@ -285,6 +285,24 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
      */
     function setRequireStakeAmount(uint256 _fixedStakeAmount) external onlyOwner {
         fixedStakeAmount = _fixedStakeAmount;
+    }
+
+    /**
+     * @dev Returns the owner of the verifier.
+     * @param verifier The address of the verifier.
+     * @return The owner address of the verifier.
+     */
+    function ownerOf(address verifier) external view returns (address) {
+        return verifiers[verifier].owner;
+    }
+
+    /**
+     * @dev Returns the information of a verifier.
+     * @param verifier The address of the verifier.
+     * @return VerifierInfo struct containing the verifier's information.
+     */
+    function getVerifier(address verifier) external view returns (VerifierInfo memory) {
+        return verifiers[verifier];
     }
 
     // Function to get the version of the contract
