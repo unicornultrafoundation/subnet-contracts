@@ -230,14 +230,17 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
         // Create the message hash
         bytes32 msgHash = _hashTypedDataV4(structHash);
 
-        // Verify the signatures and count the number of verifiers
+        // Verify the signatures and count the number of active verifiers
+        uint256 activeVerifierCount = 0;
         for (uint256 i = 0; i < signatures.length; i++) {
             address signer = ECDSA.recover(msgHash, signatures[i]);
             require(verifiers[signer].isRegistered, "Invalid signature");
+            require(verifiers[signer].status == Status.Active, "Verifier not active");
+            activeVerifierCount++;
         }
 
-        // Ensure that the number of verifiers is at least 2/3 of the total registered verifiers
-        require(signatures.length >= (2 * verifierCount) / 3, "Not enough verifiers");
+        // Ensure that the number of active verifiers is at least 2/3 of the total registered verifiers
+        require(activeVerifierCount >= (2 * verifierCount) / 3, "Not enough active verifiers");
 
         // Increment the nonce
         nonce++;
