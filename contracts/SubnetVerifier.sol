@@ -45,7 +45,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
     mapping(address => uint256) public nonces;
 
     // Events
-    event VerifierRegistered(address indexed verifier, uint256 stakeAmount, uint256 feeRate, string name, string website, string metadata);
+    event VerifierRegistered(address indexed verifier, uint256 stakeAmount, string name, string website, string metadata);
     event Staked(address indexed user, address indexed verifier, uint256 amount);
     event UnstakeRequested(address indexed user, address indexed verifier, uint256 amount, uint256 unlockTime);
     event Unstaked(address indexed user, address indexed verifier, uint256 amount);
@@ -79,7 +79,6 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
      * @dev Registers a new verifier.
      * @param verifier The address of the verifier.
      * @param owner The owner of the verifier.
-     * @param feeRate The fee rate for the verifier.
      * @param peerId The peer IDs of the verifier.
      * @param name The name of the verifier.
      * @param website The website of the verifier.
@@ -88,7 +87,6 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
     function register(
         address verifier,
         address owner,
-        uint256 feeRate,
         string memory peerId,
         string memory name,
         string memory website,
@@ -114,7 +112,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
 
         verifierCount++; // Increment verifier count
 
-        emit VerifierRegistered(verifier, stakeAmount, feeRate, name, website, metadata);
+        emit VerifierRegistered(verifier, stakeAmount, name, website, metadata);
 
         // Transfer staking tokens from the sender to the contract
         stakingToken.safeTransferFrom(msg.sender, address(this), stakeAmount);
