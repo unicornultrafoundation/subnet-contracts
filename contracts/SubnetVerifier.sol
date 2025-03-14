@@ -12,6 +12,13 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
     using SafeERC20 for IERC20;
     using ECDSA for bytes32;
 
+    // Enum to represent verifier status
+    enum Status {
+        Active,
+        Exiting,
+        Exited
+    }
+
     // Struct to store verifier information
     struct VerifierInfo {
         address owner;
@@ -23,6 +30,9 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
         string metadata;
         uint256 slashPercentage;
         bool isSlashed;
+        bool isExist; // Add isExist
+        uint256 unlockTime; // Add unlockTime
+        Status status; // Add status
     }
 
     // Struct to store unstake request information
@@ -107,7 +117,10 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
             website: website,
             metadata: metadata,
             slashPercentage: 0,
-            isSlashed: false
+            isSlashed: false,
+            isExist: true, // Set isExist to true
+            unlockTime: block.timestamp + unstakeLockPeriod, // Set unlockTime
+            status: Status.Active // Set status to Active
         });
 
         verifierCount++; // Increment verifier count
@@ -122,57 +135,35 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
     }
 
     /**
-     * @dev Requests to unstake tokens for a verifier.
-     * @param verifier The address of the verifier.
-     * @param amount The amount of tokens to unstake.
-     */
-    function requestUnstake(address verifier, uint256 amount) external onlyVerifierOwner(verifier) {
-        require(verifiers[verifier].stakeAmount >= amount, "Not enough staked");
-        require(amount > 0, "Amount must be greater than 0");
-
-        // Update verifier's stake amount
-        verifiers[verifier].stakeAmount -= amount;
-        totalStaked -= amount;
-
-        // Create a new unstake request
-        unstakeRequests[msg.sender][verifier].push(UnstakeRequest({
-            amount: amount,
-            unlockTime: block.timestamp + unstakeLockPeriod
-        }));
-
-        emit UnstakeRequested(msg.sender, verifier, amount, block.timestamp + unstakeLockPeriod);
-    }
-
-    /**
-     * @dev Unstakes tokens after the lock period.
+     * @dev Marks a verifier as exiting or exited.
      * @param verifier The address of the verifier.
      */
-    function unstake(address verifier) external onlyVerifierOwner(verifier) {
-        // Get the unstake requests for the caller and verifier
-        UnstakeRequest[] storage requests = unstakeRequests[msg.sender][verifier];
-        require(requests.length > 0, "No unstake requests found");
+    function exit(address verifier) external onlyVerifierOwner(verifier) {
+        require(verifiers[verifier].isRegistered, "Verifier not registered");
+        require(verifiers[verifier].status != Status.Exited, "Verifier already exited");
 
-        uint256 totalAmount = 0;
-        // Iterate through the unstake requests and sum up the amounts that can be unstaked
-        for (uint256 i = 0; i < requests.length; i++) {
-            if (block.timestamp >= requests[i].unlockTime) {
-                totalAmount += requests[i].amount;
-                delete requests[i];
+        if (verifiers[verifier].status == Status.Active) {
+            // Mark the verifier as exiting and set unlock time
+            verifiers[verifier].status = Status.Exiting;
+            verifiers[verifier].unlockTime = block.timestamp + unstakeLockPeriod;
+        } else if (verifiers[verifier].status == Status.Exiting) {
+            require(block.timestamp >= verifiers[verifier].unlockTime, "Unlock time not reached");
+
+            uint256 stakeAmount = verifiers[verifier].stakeAmount;
+            uint256 slashedAmount = (stakeAmount * verifiers[verifier].slashPercentage) / 100;
+            uint256 remainingAmount = stakeAmount - slashedAmount;
+
+            if (slashedAmount > 0) {
+                // Transfer the slashed amount to the zero address
+                stakingToken.safeTransfer(address(0x0), slashedAmount);
             }
+
+            // Transfer the remaining stake amount to the owner
+            stakingToken.safeTransfer(verifiers[verifier].owner, remainingAmount);
+
+            // Mark the verifier as exited
+            verifiers[verifier].status = Status.Exited;
         }
-
-        require(totalAmount > 0, "Tokens are still locked");
-
-        // If the verifier is slashed, apply the slash percentage
-        if (verifiers[verifier].isSlashed) {
-            uint256 slashedAmount = (totalAmount * verifiers[verifier].slashPercentage) / 100;
-            totalAmount -= slashedAmount;
-        }
-
-        // Transfer the unstaked tokens to the verifier
-        stakingToken.safeTransfer(msg.sender, totalAmount);
-
-        emit Unstaked(msg.sender, verifier, totalAmount);
     }
 
     /**
