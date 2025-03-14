@@ -44,7 +44,6 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
     IERC20 public stakingToken;
     uint256 public fixedStakeAmount;
     uint256 public unstakeLockPeriod;
-    uint256 public totalStaked;
     uint256 public nonce;
     uint256 public verifierCount; // Add verifier count
 
@@ -55,13 +54,12 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
 
     // Events
     event VerifierRegistered(address indexed verifier, uint256 stakeAmount, string name, string website, string metadata);
-    event Staked(address indexed user, address indexed verifier, uint256 amount);
-    event UnstakeRequested(address indexed user, address indexed verifier, uint256 amount, uint256 unlockTime);
-    event Unstaked(address indexed user, address indexed verifier, uint256 amount);
     event PeerIdsUpdated(address indexed verifier, string newPeerId);
     event VerifierInfoUpdated(address indexed verifier, string name, string website, string metadata);
     event VerifierSlashed(address indexed verifier, uint256 slashPercentage);
     event Executed(address indexed target, bytes data);
+    event Exiting(address indexed verifier, uint256 unlockTime);
+    event Exited(address indexed verifier, uint256 remainingAmount);
 
     // Initialize function to set initial values
     function initialize(
@@ -123,13 +121,11 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
 
         verifierCount++; // Increment verifier count
 
-        emit VerifierRegistered(verifier, stakeAmount, name, website, metadata);
 
         // Transfer staking tokens from the sender to the contract
         stakingToken.safeTransferFrom(msg.sender, address(this), stakeAmount);
-        totalStaked += stakeAmount;
 
-        emit Staked(msg.sender, verifier, stakeAmount);
+        emit VerifierRegistered(verifier, stakeAmount, name, website, metadata);
     }
 
     /**
@@ -144,6 +140,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
             // Mark the verifier as exiting and set unlock time
             verifiers[verifier].status = Status.Exiting;
             verifiers[verifier].unlockTime = block.timestamp + unstakeLockPeriod;
+            emit Exiting(verifier, verifiers[verifier].unlockTime);
         } else if (verifiers[verifier].status == Status.Exiting) {
             require(block.timestamp >= verifiers[verifier].unlockTime, "Unlock time not reached");
 
@@ -161,6 +158,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
 
             // Mark the verifier as exited
             verifiers[verifier].status = Status.Exited;
+            emit Exited(verifier, remainingAmount);
         }
     }
 
