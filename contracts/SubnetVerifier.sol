@@ -15,6 +15,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
     // Enum to represent verifier status
     enum Status {
         Active,
+        Slashed,
         Exiting,
         Exited
     }
@@ -205,6 +206,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
         // Update the verifier's slash percentage and mark as slashed
         verifiers[verifier].slashPercentage = slashPercentage;
         verifiers[verifier].isSlashed = true;
+        verifiers[verifier].status = Status.Slashed; // Set status to Slashed
 
         verifierCount--; // Decrement verifier count
 
@@ -281,6 +283,15 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
      */
     function getVerifier(address verifier) external view returns (VerifierInfo memory) {
         return verifiers[verifier];
+    }
+
+    /**
+     * @dev Checks if a verifier is active.
+     * @param verifier The address of the verifier.
+     * @return True if the verifier is active, false otherwise.
+     */
+    function isActive(address verifier) external view returns (bool) {
+        return verifiers[verifier].status == Status.Active;
     }
 
     // Function to get the version of the contract
