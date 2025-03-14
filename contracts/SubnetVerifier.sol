@@ -33,7 +33,6 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
 
     // State variables
     IERC20 public stakingToken;
-    IERC20 public profitToken;
     uint256 public fixedStakeAmount;
     uint256 public unstakeLockPeriod;
     uint256 public totalStaked;
