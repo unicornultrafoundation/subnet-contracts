@@ -79,7 +79,6 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
     /**
      * @dev Registers a new verifier.
      * @param verifier The address of the verifier.
-     * @param owner The owner of the verifier.
      * @param peerId The peer IDs of the verifier.
      * @param name The name of the verifier.
      * @param website The website of the verifier.
@@ -87,7 +86,6 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
      */
     function register(
         address verifier,
-        address owner,
         string memory peerId,
         string memory name,
         string memory website,
@@ -100,7 +98,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
         require(stakeAmount > 0, "Stake amount must be greater than 0");
 
         verifiers[verifier] = VerifierInfo({
-            owner: owner,
+            owner: msg.sender,
             isRegistered: true,
             stakeAmount: stakeAmount,
             peerId: peerId,
