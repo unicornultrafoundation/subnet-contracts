@@ -42,20 +42,14 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
 
     // Mappings to store various data
     mapping(address => VerifierInfo) public verifiers;
-    mapping(address => uint256) public verifierRewards;
     mapping(address => mapping(address => UnstakeRequest[])) public unstakeRequests;
-    mapping(bytes32 => bool) public usedHashes;
     mapping(address => uint256) public nonces;
-    mapping(address => mapping(address => uint256)) public userRewardDebt;
 
     // Events
     event VerifierRegistered(address indexed verifier, uint256 stakeAmount, uint256 feeRate, string name, string website, string metadata);
     event Staked(address indexed user, address indexed verifier, uint256 amount);
     event UnstakeRequested(address indexed user, address indexed verifier, uint256 amount, uint256 unlockTime);
     event Unstaked(address indexed user, address indexed verifier, uint256 amount);
-    event RewardWithdrawn(address indexed user, address indexed verifier, uint256 amount);
-    event ProfitAdded(address indexed verifier, uint256 amount);
-    event FeeRateUpdated(address indexed verifier, uint256 newFeeRate);
     event PeerIdsUpdated(address indexed verifier, string newPeerId);
     event VerifierInfoUpdated(address indexed verifier, string name, string website, string metadata);
     event VerifierSlashed(address indexed verifier, uint256 slashPercentage);
