@@ -128,12 +128,12 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
         require(verifiers[verifier].isRegistered, "Verifier not registered");
         require(verifiers[verifier].status != Status.Exited, "Verifier already exited");
 
-        if (verifiers[verifier].status == Status.Active) {
+        if (verifiers[verifier].status != Status.Exiting) {
             // Mark the verifier as exiting and set unlock time
             verifiers[verifier].status = Status.Exiting;
             verifiers[verifier].unlockTime = block.timestamp + unstakeLockPeriod;
             emit Exiting(verifier, verifiers[verifier].unlockTime);
-        } else if (verifiers[verifier].status == Status.Exiting) {
+        } else {
             require(block.timestamp >= verifiers[verifier].unlockTime, "Unlock time not reached");
 
             uint256 stakeAmount = verifiers[verifier].stakeAmount;
@@ -142,7 +142,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
 
             if (slashedAmount > 0) {
                 // Transfer the slashed amount to the zero address
-                stakingToken.safeTransfer(address(0x0), slashedAmount);
+                stakingToken.safeTransfer(address(0xdead), slashedAmount);
             }
 
             // Transfer the remaining stake amount to the owner
@@ -217,7 +217,7 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
      * @param data The data to be executed.
      * @param signatures The signatures from the verifiers.
      */
-    function execute(address target, bytes memory data, bytes[] memory signatures) external {
+    function execute(address target, bytes memory data, bytes[] memory signatures) external payable returns (bool success) {
         require(target != address(0), "Invalid target address");
 
         // Create the struct hash for the transaction
@@ -246,8 +246,17 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
         nonce++;
 
         // Execute the transaction
-        (bool success, ) = target.call(data);
-        require(success, "Data execution failed");
+        (success, ) = target.call(data);
+        if (!success) {
+            /* solhint-disable no-inline-assembly */
+            /// @solidity memory-safe-assembly
+            assembly {
+                let ptr := mload(0x40)
+                returndatacopy(ptr, 0, returndatasize())
+                revert(ptr, returndatasize())
+            }
+            /* solhint-enable no-inline-assembly */
+        }
 
         emit Executed(target, data);
     }

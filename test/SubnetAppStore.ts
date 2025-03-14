@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { ERC20Mock, SubnetAppStore, SubnetProvider } from '../typechain-types';
 import { HardhatEthersSigner } from '@nomicfoundation/hardhat-ethers/signers';
 import SubnetProviderModule from '../ignition/modules/SubnetProvider';
-import SubnetAppStoreModule from '../ignition/modules/SubnetAppStore';
+import SubnetAppStoreModule from '../ignition/modules/SubnetAppStoreV2';
 
 describe("SubnetAppStore", function () {
     let subnetAppStore: SubnetAppStore;
