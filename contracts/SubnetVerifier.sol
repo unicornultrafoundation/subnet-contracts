@@ -30,7 +30,6 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
         string metadata;
         uint256 slashPercentage;
         bool isSlashed;
-        bool isExist; // Add isExist
         uint256 unlockTime; // Add unlockTime
         Status status; // Add status
     }
@@ -118,7 +117,6 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
             metadata: metadata,
             slashPercentage: 0,
             isSlashed: false,
-            isExist: true, // Set isExist to true
             unlockTime: block.timestamp + unstakeLockPeriod, // Set unlockTime
             status: Status.Active // Set status to Active
         });
