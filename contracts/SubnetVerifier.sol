@@ -34,12 +34,6 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
         Status status; // Add status
     }
 
-    // Struct to store unstake request information
-    struct UnstakeRequest {
-        uint256 amount;
-        uint256 unlockTime;
-    }
-
     // State variables
     IERC20 public stakingToken;
     uint256 public fixedStakeAmount;
@@ -49,7 +43,6 @@ contract SubnetVerifier is Initializable, OwnableUpgradeable, EIP712Upgradeable 
 
     // Mappings to store various data
     mapping(address => VerifierInfo) public verifiers;
-    mapping(address => mapping(address => UnstakeRequest[])) public unstakeRequests;
     mapping(address => uint256) public nonces;
 
     // Events
