@@ -450,7 +450,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
         uint256 duration,
         uint256 timestamp,
         bytes memory signature
-    ) external {
+    ) external virtual{
         // Validate the application ID and other inputs
         require(appId > 0 && appId <= appCount, "Invalid App ID");
         App storage app = apps[appId];
@@ -559,7 +559,7 @@ contract SubnetAppStore is Initializable, EIP712Upgradeable, OwnableUpgradeable 
      * @param appId The ID of the application.
      * @param lockedReward The locked reward details.
      */
-    function _payLockedReward(uint256 appId, LockedReward memory lockedReward) internal {
+    function _payLockedReward(uint256 appId, LockedReward memory lockedReward) internal virtual {
         uint256 reward = lockedReward.reward;
         uint256 protocolFees = 0;
         uint256 verifierFees = 0;
