@@ -166,9 +166,9 @@ contract SubnetAppStoreV3 is SubnetAppStoreV2 {
 
         if (verifierRewardRate > 0 && appVerifiers[usage.appId].length > 0) {
             verifierReward = (reward * verifierRewardRate) / 1000;
-            reward -= verifierReward;
             for (uint256 i = 0; i < appVerifiers[usage.appId].length; i++) {
-                IERC20(app.paymentToken).safeTransfer(appVerifiers[usage.appId][i], verifierReward / appVerifiers[usage.appId].length);
+                reward -= verifierReward;
+                IERC20(app.paymentToken).safeTransfer(appVerifiers[usage.appId][i], verifierReward);
             }
         }
 
