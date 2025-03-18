@@ -102,7 +102,10 @@ contract SubnetAppStoreV3 is SubnetAppStoreV2 {
             duration: duration,
             timestamp: timestamp
         });
+        _reportUsage(usage, signatures);
+    }
 
+    function _reportUsage(Usage memory usage, bytes memory signatures) internal {
         validateUsageInputs(usage);
         bytes32 structHash = hashUsageData(usage);
         verifySignatures(usage.appId, structHash, signatures);
@@ -157,6 +160,7 @@ contract SubnetAppStoreV3 is SubnetAppStoreV2 {
 
         uint256 protocolFees = 0;
         uint256 verifierReward = 0;
+        uint256 spentBudget = reward;
 
         if (feeRate > 0 && treasury != address(0)) {
             protocolFees = (reward * feeRate) / 1000;
@@ -173,7 +177,7 @@ contract SubnetAppStoreV3 is SubnetAppStoreV2 {
         }
 
         pendingRewards[usage.appId][usage.providerId] += reward;
-        app.spentBudget += reward + verifierReward + protocolFees;
+        app.spentBudget += spentBudget;
         emit UsageReported(
             usage.appId,
             usage.providerId,
