@@ -6,12 +6,12 @@ import SubnetIPRegistryModule from '../ignition/modules/SubnetIPRegistry';
 
 describe("SubnetIPRegistry", function () {
     let subnetIPRegistry: SubnetIPRegistry;
-    let owner: HardhatEthersSigner, user: HardhatEthersSigner;
+    let owner: HardhatEthersSigner, user: HardhatEthersSigner, addr1: HardhatEthersSigner;
     let paymentToken: ERC20Mock;
     const purchaseFee = ethers.parseEther("10");
 
     beforeEach(async function () {
-        [owner, user] = await ethers.getSigners();
+        [owner, user, addr1] = await ethers.getSigners();
 
         // Deploy mock ERC20 token
         const ERC20MockFactory = await ethers.getContractFactory("ERC20Mock");
@@ -74,5 +74,35 @@ describe("SubnetIPRegistry", function () {
 
         await expect(subnetIPRegistry.connect(owner).bindPeer(0x0A000001, peerId))
             .to.be.revertedWith("Not authorized");
+    });
+
+    it("should allow the owner to update the treasury address", async function () {
+        const newTreasury = addr1.address;
+
+        await subnetIPRegistry.connect(owner).updateTreasury(newTreasury);
+
+        expect(await subnetIPRegistry.treasury()).to.equal(newTreasury);
+    });
+
+    it("should reject non-owners from updating the treasury address", async function () {
+        const newTreasury = addr1.address;
+
+        await expect(subnetIPRegistry.connect(user).updateTreasury(newTreasury))
+        .to.be.revertedWithCustomError(subnetIPRegistry, "OwnableUnauthorizedAccount");
+    });
+
+    it("should allow the owner to update the purchase fee", async function () {
+        const newPurchaseFee = ethers.parseEther("20");
+
+        await subnetIPRegistry.connect(owner).updatePurchaseFee(newPurchaseFee);
+
+        expect(await subnetIPRegistry.purchaseFee()).to.equal(newPurchaseFee);
+    });
+
+    it("should reject non-owners from updating the purchase fee", async function () {
+        const newPurchaseFee = ethers.parseEther("20");
+
+        await expect(subnetIPRegistry.connect(user).updatePurchaseFee(newPurchaseFee))
+            .to.be.revertedWithCustomError(subnetIPRegistry, "OwnableUnauthorizedAccount");
     });
 });

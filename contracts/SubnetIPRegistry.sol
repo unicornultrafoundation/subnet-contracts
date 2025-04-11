@@ -82,4 +82,17 @@ contract SubnetIPRegistry is Initializable, ERC721Upgradeable, OwnableUpgradeabl
     function getPeer(uint256 tokenId) external view returns (string memory) {
         return ipPeer[tokenId]; // Return the peer ID for the token ID.
     }
+
+    // Updates the treasury address.
+    // @param newTreasury The new address of the treasury.
+    function updateTreasury(address newTreasury) external onlyOwner {
+        require(newTreasury != address(0), "Invalid treasury address");
+        treasury = newTreasury;
+    }
+
+    // Updates the purchase fee.
+    // @param newPurchaseFee The new fee amount required for purchasing an IP.
+    function updatePurchaseFee(uint256 newPurchaseFee) external onlyOwner {
+        purchaseFee = newPurchaseFee;
+    }
 }
