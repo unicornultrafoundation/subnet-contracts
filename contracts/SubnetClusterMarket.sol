@@ -5,7 +5,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract SubnetCluster is Initializable, OwnableUpgradeable {
+contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
     using SafeERC20 for IERC20;
 
     struct Cluster {
@@ -91,6 +91,28 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
     address public operator;
 
     event OperatorUpdated(address indexed newOperator);
+
+    function initialize(
+        address _initialOwner,
+        address _operator,
+        uint256 _gpuPrice,
+        uint256 _cpuPrice,
+        uint256 _memoryBytesPrice,
+        uint256 _diskPrice,
+        uint256 _networkPrice
+    ) public initializer {
+        __Ownable_init(_initialOwner);
+        operator = _operator;
+        nextOrderId = 1;
+        nextClusterId = 1;
+        resourcePrice = ResourcePrice({
+            gpu: _gpuPrice,
+            cpu: _cpuPrice,
+            memoryBytes: _memoryBytesPrice,
+            disk: _diskPrice,
+            network: _networkPrice
+        });
+    }
 
     /// @notice Set the operator address.
     /// @param _operator The address to set as operator.
@@ -530,7 +552,6 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
         require(msg.sender == owner() || msg.sender == operator, "Not authorized");
         Cluster storage cluster = clusters[clusterId];
         require(cluster.expiration <= block.timestamp, "Cluster not expired");
-        require(!cluster.active, "Cluster must be inactive");
         require(nodeIps.length > 0, "Node IPs required");
 
         // Remove clusterId from all old nodeIpToClusterIds
@@ -544,5 +565,12 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
         }
 
         emit ClusterNodesAdded(clusterId, nodeIps);
+    }
+
+    /// @notice Returns the cluster info for a given clusterId.
+    /// @param clusterId The ID of the cluster.
+    /// @return cluster The Cluster struct.
+    function getCluster(uint256 clusterId) external view returns (Cluster memory) {
+        return clusters[clusterId];
     }
 }
