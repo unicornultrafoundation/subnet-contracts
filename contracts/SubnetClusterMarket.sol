@@ -344,6 +344,8 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
             network: order.network
         });
 
+        nodeIpToClusterIds[order.ip].push(clusterId);
+
         // Index nodeIps to clusterId
         for (uint i = 0; i < nodeIps.length; i++) {
             nodeIpToClusterIds[nodeIps[i]].push(clusterId);
@@ -475,7 +477,10 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
         for (uint i = 0; i < clusters1.length; i++) {
             for (uint j = 0; j < clusters2.length; j++) {
                 if (clusters1[i] == clusters2[j]) {
-                    return true;
+                    // Check if the cluster is not expired
+                    if (clusters[clusters1[i]].expiration > block.timestamp) {
+                        return true;
+                    }
                 }
             }
         }
@@ -487,5 +492,29 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
     /// @return clusterIds The list of cluster IDs containing the node IP.
     function getClustersOfNode(uint256 nodeIp) public view returns (uint256[] memory clusterIds) {
         return nodeIpToClusterIds[nodeIp];
+    }
+
+    /// @notice Allows the owner or operator to update the main IP of a cluster.
+    /// @param clusterId The ID of the cluster.
+    /// @param newIp The new main IP to set.
+    function updateClusterIp(uint256 clusterId, uint256 newIp) external {
+        Cluster storage cluster = clusters[clusterId];
+        require(cluster.owner == msg.sender, "Not cluster owner");
+        uint256 oldIp = cluster.ip;
+        if (oldIp != 0) {
+            // Remove clusterId from oldIp index
+            uint256[] storage clusterIds = nodeIpToClusterIds[oldIp];
+            for (uint i = 0; i < clusterIds.length; i++) {
+                if (clusterIds[i] == clusterId) {
+                    clusterIds[i] = clusterIds[clusterIds.length - 1];
+                    clusterIds.pop();
+                    break;
+                }
+            }
+        }
+        cluster.ip = newIp;
+        if (newIp != 0) {
+            nodeIpToClusterIds[newIp].push(clusterId);
+        }
     }
 }
