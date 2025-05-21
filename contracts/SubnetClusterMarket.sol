@@ -45,6 +45,7 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
     event ClusterNodesAdded(uint256 indexed clusterId, uint256[] newNodeIps);
     event ClusterNodeRemoved(uint256 indexed clusterId, uint256 indexed nodeIp);
     event OrderCanceled(uint256 indexed orderId, address indexed user);
+    event ClusterInactive(uint256 indexed clusterId); // <--- add this line
 
     enum OrderStatus { Pending, Confirmed, Canceled, Refunded }
     enum OrderType { New, Extend, Scale }
@@ -121,10 +122,10 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
         emit ResourcePriceUpdated(gpu, cpu, memoryBytes, disk, network);
     }
 
-    IERC20 public paymentToken;
+    address public paymentToken;
 
     function setPaymentToken(address token) external onlyOwner {
-        paymentToken = IERC20(token);
+        paymentToken = token;
     }
 
     // Discount thresholds and rates
@@ -164,7 +165,6 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
         uint256 disk,
         uint256 network,
         uint256 rentalDuration,
-        address payToken,
         uint256 clusterId,
         OrderType orderType
     ) internal {
@@ -187,9 +187,8 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
         }
 
         require(totalPrice > 0, "Total price must be greater than 0");
-        require(payToken != address(0), "Payment token not set");
-        IERC20 token = IERC20(payToken);
-        token.safeTransferFrom(user, address(this), totalPrice);
+        require(paymentToken != address(0), "Payment token not set");
+        IERC20(paymentToken).safeTransferFrom(user, address(this), totalPrice);
 
         orders[nextOrderId] = Order({
             user: user,
@@ -201,7 +200,7 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
             disk: disk,
             network: network,
             rentalDuration: rentalDuration,
-            paymentToken: payToken,
+            paymentToken: paymentToken,
             clusterId: clusterId,
             paidAmount: totalPrice,
             discountAmount: discountAmount,
@@ -221,7 +220,6 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
         uint256 network,
         uint256 rentalDuration
     ) external {
-        address payToken = address(paymentToken);
         _createOrder(
             msg.sender,
             ip,
@@ -231,7 +229,6 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
             disk,
             network,
             rentalDuration,
-            payToken,
             0,
             OrderType.New
         );
@@ -240,28 +237,32 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
     /// @notice Allows the user to extend the rental duration of their cluster.
     /// @param clusterId The ID of the cluster to extend.
     /// @param additionalDuration The additional rental duration to add.
-    /// @param payToken The token address for payment.
     function extend(
         uint256 clusterId,
-        uint256 additionalDuration,
-        address payToken
+        uint256 additionalDuration
     ) external {
-        require(additionalDuration > 0, "Duration must be positive");
-        require(clusters[clusterId].renter == msg.sender, "Not cluster owner");
+        Cluster storage cluster = clusters[clusterId];
+        require(cluster.renter == msg.sender, "Not cluster owner");
+        require(cluster.expiration > block.timestamp, "Cluster expired");
 
         _createOrder(
             msg.sender,
             0,
-            0,
-            0,
-            0,
-            0,
-            0,
+            cluster.cpu,
+            cluster.gpu,
+            cluster.memoryBytes,
+            cluster.disk,
+            cluster.network,
             additionalDuration,
-            payToken,
             clusterId,
             OrderType.Extend
         );
+
+
+        Order storage order = orders[nextOrderId - 1];
+        order.status = OrderStatus.Confirmed; // Mark order as confirmed
+        cluster.expiration += order.rentalDuration;
+        emit OrderConfirmed(nextOrderId - 1);
     }
 
     /// @notice Allows the user to scale up/down the resources of their cluster.
@@ -271,15 +272,13 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
     /// @param memoryBytes New memory amount.
     /// @param disk New disk amount.
     /// @param network New network amount.
-    /// @param payToken The token address for payment.
     function scale(
         uint256 clusterId,
         uint256 gpu,
         uint256 cpu,
         uint256 memoryBytes,
         uint256 disk,
-        uint256 network,
-        address payToken
+        uint256 network
     ) external {
         // clusterId is used to find the main order
         Cluster storage cluster = clusters[clusterId];
@@ -295,8 +294,7 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
             disk,
             network,
             cluster.expiration -  block.timestamp,
-            payToken,
-            cluster.orderId,
+            clusterId,
             OrderType.Scale
         );
     }
@@ -354,25 +352,6 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
         order.clusterId = clusterId;
 
         emit OrderConfirmed(clusterId);
-    }
-
-    /// @notice Allows the owner or operator to confirm an extend order and update cluster expiration.
-    /// @param orderId The ID of the extend order to confirm.
-    function confirmExtendOrder(uint256 orderId) external {
-        require(msg.sender == owner() || msg.sender == operator, "Not authorized");
-        Order storage order = orders[orderId];
-        require(order.status == OrderStatus.Pending, "Order is not pending");
-        require(order.orderType == OrderType.Extend, "Order type must be Extend");
-        require(order.clusterId != 0, "Invalid clusterId");
-
-        // Mark order as confirmed
-        order.status = OrderStatus.Confirmed;
-
-        // Update cluster expiration
-        Cluster storage cluster = clusters[order.clusterId];
-        cluster.expiration += order.rentalDuration;
-
-        emit OrderConfirmed(orderId);
     }
 
     /// @notice Allows the owner or operator to confirm a scale order and update cluster resources.
@@ -500,6 +479,7 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
     function updateClusterIp(uint256 clusterId, uint256 newIp) external {
         Cluster storage cluster = clusters[clusterId];
         require(cluster.owner == msg.sender, "Not cluster owner");
+        require(cluster.expiration > block.timestamp, "Cluster expired");
         uint256 oldIp = cluster.ip;
         if (oldIp != 0) {
             // Remove clusterId from oldIp index
@@ -516,5 +496,53 @@ contract SubnetCluster is Initializable, OwnableUpgradeable {
         if (newIp != 0) {
             nodeIpToClusterIds[newIp].push(clusterId);
         }
+    }
+
+    /// @notice Mark expired clusters as inactive.
+    /// @dev Anyone can call this to mark clusters as inactive if they are expired.
+    /// @param clusterIds The array of cluster IDs to check and inactivate if expired.
+    function inactiveExpiredClusters(uint256[] calldata clusterIds) external {
+        for (uint i = 0; i < clusterIds.length; i++) {
+            uint256 clusterId = clusterIds[i];
+            Cluster storage cluster = clusters[clusterId];
+            if (cluster.active && cluster.expiration <= block.timestamp) {
+                cluster.active = false;
+                // Remove clusterId from nodeIpToClusterIds for all nodeIps
+                for (uint j = 0; j < cluster.nodeIps.length; j++) {
+                    _removeNodeFromCluster(clusterId, cluster.nodeIps[j]);
+                }
+                // Remove clusterId from nodeIpToClusterIds for main ip if not already handled
+                if (cluster.ip != 0) {
+                    _removeNodeFromCluster(clusterId, cluster.ip);
+                }
+                emit ClusterInactive(clusterId); // <--- emit event here
+            }
+        }
+    }
+
+    /// @notice Allows the owner or operator to recreate an expired cluster with new nodes and expiration.
+    /// @param clusterId The ID of the cluster to recreate.
+    /// @param nodeIps The new list of node IPs for the cluster.
+    function recreateCluster(
+        uint256 clusterId,
+        uint256[] calldata nodeIps
+    ) external {
+        require(msg.sender == owner() || msg.sender == operator, "Not authorized");
+        Cluster storage cluster = clusters[clusterId];
+        require(cluster.expiration <= block.timestamp, "Cluster not expired");
+        require(!cluster.active, "Cluster must be inactive");
+        require(nodeIps.length > 0, "Node IPs required");
+
+        // Remove clusterId from all old nodeIpToClusterIds
+        for (uint i = 0; i < cluster.nodeIps.length; i++) {
+            _removeNodeFromCluster(clusterId, cluster.nodeIps[i]);
+        }
+
+        for (uint i = 0; i < nodeIps.length; i++) {
+            cluster.nodeIps.push(nodeIps[i]);
+            nodeIpToClusterIds[nodeIps[i]].push(clusterId);
+        }
+
+        emit ClusterNodesAdded(clusterId, nodeIps);
     }
 }
