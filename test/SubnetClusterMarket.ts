@@ -128,4 +128,105 @@ describe("SubnetClusterMarket", function () {
         same = await clusterMarket.areNodesInAnySameCluster(111, 222);
         expect(same).to.equal(false);
     });
+
+    it("should allow owner to set operator", async function () {
+        await clusterMarket.setOperator(user.address);
+        expect(await clusterMarket.operator()).to.equal(user.address);
+    });
+
+    it("should allow owner to set resource price", async function () {
+        await clusterMarket.setResourcePrice(2, 3, 4, 5, 6);
+        const price = await clusterMarket.resourcePrice();
+        expect(price.gpu).to.equal(2);
+        expect(price.cpu).to.equal(3);
+        expect(price.memoryBytes).to.equal(4);
+        expect(price.disk).to.equal(5);
+        expect(price.network).to.equal(6);
+    });
+
+    it("should allow owner to set payment token", async function () {
+        const ERC20Mock = await ethers.getContractFactory("ERC20Mock");
+        const newToken = await ERC20Mock.deploy("NewToken", "NTK");
+        await clusterMarket.setPaymentToken(await newToken.getAddress());
+        expect(await clusterMarket.paymentToken()).to.equal(await newToken.getAddress());
+    });
+
+    it("should allow owner to add discount and get discount percent", async function () {
+        await clusterMarket.addDiscount(100, 10);
+        await clusterMarket.addDiscount(200, 20);
+        expect(await clusterMarket.getDiscountPercent(50)).to.equal(0);
+        expect(await clusterMarket.getDiscountPercent(100)).to.equal(10);
+        expect(await clusterMarket.getDiscountPercent(200)).to.equal(20);
+        expect(await clusterMarket.getDiscountPercent(300)).to.equal(20);
+    });
+
+    it("should allow owner to add nodes to cluster", async function () {
+        await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
+        await clusterMarket.connect(owner).confirmOrder(1, [111], 999);
+
+        await expect(clusterMarket.addNodesToCluster(1, [222, 333]))
+            .to.emit(clusterMarket, "ClusterNodesAdded");
+        const cluster = await clusterMarket.getCluster(1);
+        expect(cluster.nodeIps.length).to.equal(3);
+        expect(cluster.nodeIps[1]).to.equal(222);
+        expect(cluster.nodeIps[2]).to.equal(333);
+    });
+
+    it("should allow owner to remove node from cluster", async function () {
+        await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222], 999);
+
+        await expect(clusterMarket.removeNodeFromCluster(1, 222))
+            .to.emit(clusterMarket, "ClusterNodeRemoved");
+        const cluster = await clusterMarket.getCluster(1);
+        expect(cluster.nodeIps.length).to.equal(1);
+        expect(cluster.nodeIps[0]).to.equal(111);
+    });
+
+    it("should allow owner to remove multiple nodes from cluster", async function () {
+        await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222, 333], 999);
+
+        await expect(clusterMarket.removeNodesFromCluster(1, [222, 333]))
+            .to.not.be.reverted;
+        const cluster = await clusterMarket.getCluster(1);
+        expect(cluster.nodeIps.length).to.equal(1);
+        expect(cluster.nodeIps[0]).to.equal(111);
+    });
+
+    it("should return correct clusters for a node ip", async function () {
+        await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222], 999);
+
+        const clustersFor111 = await clusterMarket.getClustersOfNode(111);
+        expect(clustersFor111).to.include(1);
+        const clustersFor222 = await clusterMarket.getClustersOfNode(222);
+        expect(clustersFor222).to.include(1);
+    });
+
+    it("should allow owner to update cluster ip if not expired", async function () {
+        await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222], 999);
+
+        await clusterMarket.connect(owner).updateClusterIp(1, 333);
+        const cluster = await clusterMarket.getCluster(1);
+        expect(cluster.ip).to.equal(333);
+    });
+
+    it("should return cluster info from getCluster", async function () {
+        await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222], 999);
+
+        const cluster = await clusterMarket.getCluster(1);
+        expect(cluster.owner).to.equal(owner.address);
+        expect(cluster.renter).to.equal(user.address);
+        expect(cluster.nodeIps.length).to.equal(2);
+        expect(cluster.active).to.equal(true);
+    });
 });

@@ -167,6 +167,18 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
         emit DiscountAdded(minDuration, percent);
     }
 
+    /// @notice Allows the owner to update a discount rule by index.
+    /// @param index The index of the discount to update.
+    /// @param minDuration Minimum rental duration to qualify for discount.
+    /// @param percent Discount percent (e.g. 10 for 10%).
+    function updateDiscount(uint256 index, uint256 minDuration, uint256 percent) external onlyOwner {
+        require(index < discounts.length, "Invalid discount index");
+        require(percent < 100, "Discount too high");
+        discounts[index].minDuration = minDuration;
+        discounts[index].percent = percent;
+        emit DiscountAdded(minDuration, percent);
+    }
+
     /// @dev Internal function to get discount percent for a given duration.
     function getDiscountPercent(uint256 rentalDuration) public view returns (uint256) {
         uint256 best = 0;
