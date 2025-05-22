@@ -201,7 +201,7 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
         uint256 rentalDuration,
         uint256 clusterId,
         OrderType orderType,
-        uint256 expectedPrice // new param
+        uint256 maxPrice // renamed from expectedPrice
     ) internal {
         // Calculate total price
         uint256 totalPrice =
@@ -223,7 +223,7 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
 
         require(totalPrice > 0, "Total price must be greater than 0");
         require(paymentToken != address(0), "Payment token not set");
-        require(totalPrice == expectedPrice, "Price changed, please retry"); // price check
+        require(totalPrice <= maxPrice, "Price changed, please retry"); // price check
         IERC20(paymentToken).safeTransferFrom(user, address(this), totalPrice);
 
         orders[nextOrderId] = Order({
@@ -255,7 +255,7 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
         uint256 disk,
         uint256 network,
         uint256 rentalDuration,
-        uint256 expectedPrice // new param
+        uint256 maxPrice // renamed from expectedPrice
     ) external {
         _createOrder(
             msg.sender,
@@ -268,18 +268,18 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
             rentalDuration,
             0,
             OrderType.New,
-            expectedPrice
+            maxPrice
         );
     }
 
     /// @notice Allows the user to extend the rental duration of their cluster.
     /// @param clusterId The ID of the cluster to extend.
     /// @param additionalDuration The additional rental duration to add.
-    /// @param expectedPrice The expected price for the extension.
+    /// @param maxPrice The max price for the extension.
     function extend(
         uint256 clusterId,
         uint256 additionalDuration,
-        uint256 expectedPrice // new param
+        uint256 maxPrice
     ) external {
         Cluster storage cluster = clusters[clusterId];
         require(cluster.renter == msg.sender, "Not cluster owner");
@@ -296,7 +296,7 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
             additionalDuration,
             clusterId,
             OrderType.Extend,
-            expectedPrice
+            maxPrice
         );
 
         Order storage order = orders[nextOrderId - 1];
@@ -312,7 +312,7 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
     /// @param memoryBytes New memory amount.
     /// @param disk New disk amount.
     /// @param network New network amount.
-    /// @param expectedPrice The expected price for the scale.
+    /// @param maxPrice The max price for the scale.
     function scale(
         uint256 clusterId,
         uint256 gpu,
@@ -320,7 +320,7 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
         uint256 memoryBytes,
         uint256 disk,
         uint256 network,
-        uint256 expectedPrice // new param
+        uint256 maxPrice 
     ) external {
         Cluster storage cluster = clusters[clusterId];
         require(cluster.renter == msg.sender, "Not cluster owner");
@@ -337,22 +337,20 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
             cluster.expiration -  block.timestamp,
             clusterId,
             OrderType.Scale,
-            expectedPrice
+            maxPrice
         );
     }
 
     /// @notice Owner or operator confirms an order and creates a Ray cluster with the given node IPs.
     /// @param orderId The ID of the order to confirm.
     /// @param nodeIps The list of node IPs for the Ray cluster.
-    /// @param renterIp The renter's IP.
-    /// @param expectedPrice The expected price for confirmation.
-    function confirmOrder(uint256 orderId, uint256[] memory nodeIps, uint256 renterIp, uint256 expectedPrice) external {
+    function confirmOrder(uint256 orderId, uint256[] memory nodeIps) external {
         require(msg.sender == owner() || msg.sender == operator, "Not authorized");
         Order storage order = orders[orderId];
         require(order.status == OrderStatus.Pending, "Order is not pending");
         require(order.orderType == OrderType.New, "Order type must be New");
         require(nodeIps.length > 0, "Node IPs required");
-        require(order.paidAmount == expectedPrice, "Order price mismatch");
+        // No price check here
 
         // Mark order as confirmed
         order.status = OrderStatus.Confirmed;
@@ -369,7 +367,7 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
             active: true,
             expiration: expiration,
             renter: order.user,
-            renterIp: renterIp,
+            renterIp: order.ip,
             ip: order.ip,
             gpu: order.gpu,
             cpu: order.cpu,

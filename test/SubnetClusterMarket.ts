@@ -2,6 +2,7 @@ import { ethers, ignition } from "hardhat";
 import { expect } from "chai";
 import { ERC20, ERC20Mock, SubnetClusterMarket } from '../typechain-types';
 import SubnetClusterMarketModule from '../ignition/modules/SubnetClusterMarket';
+import { time } from "@nomicfoundation/hardhat-network-helpers";
 
 
 describe("SubnetClusterMarket", function () {
@@ -32,14 +33,15 @@ describe("SubnetClusterMarket", function () {
 
     it("should create a new order and confirm it", async function () {
         await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
+        // price = (2+3+4+5+6)*10 = 20*10 = 200
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n);
 
         const order = await clusterMarket.orders(1);
         expect(order.user).to.equal(user.address);
         expect(order.status).to.equal(0); // Pending
 
-        // Confirm order
-        await clusterMarket.connect(owner).confirmOrder(1, [111, 222], 999);
+        // Confirm order (price param is ignored in contract, but keep for signature)
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222]);
         const cluster = await clusterMarket.getCluster(1);
         expect(cluster.active).to.equal(true);
         expect(cluster.renter).to.equal(user.address);
@@ -48,10 +50,11 @@ describe("SubnetClusterMarket", function () {
 
     it("should allow user to scale cluster", async function () {
         await token.connect(user).approve(clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
-        await clusterMarket.connect(owner).confirmOrder(1, [111], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111]);
 
-        await clusterMarket.connect(user).scale(1, 1, 1, 1, 1, 1);
+        // scale: price = (1+1+1+1+1)*(expiration-now) = 5*10 = 50
+        await clusterMarket.connect(user).scale(1, 1, 1, 1, 1, 1, 60n);
         const orderId = await clusterMarket.nextOrderId() - 1n;
         await clusterMarket.connect(owner).confirmScaleOrder(orderId);
 
@@ -62,7 +65,7 @@ describe("SubnetClusterMarket", function () {
 
     it("should allow user to cancel pending order and refund", async function () {
         await token.connect(user).approve(clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n);
 
         const beforeBalance = await token.balanceOf(user.address);
         await expect(clusterMarket.connect(user).cancelOrder(1))
@@ -73,8 +76,8 @@ describe("SubnetClusterMarket", function () {
 
     it("should mark expired clusters as inactive", async function () {
         await token.connect(user).approve(clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 1);
-        await clusterMarket.connect(owner).confirmOrder(1, [111], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 1, 20n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111]);
 
         // Increase time to expire cluster
         await ethers.provider.send("evm_increaseTime", [2]);
@@ -87,8 +90,8 @@ describe("SubnetClusterMarket", function () {
 
     it("should allow recreate cluster by owner or operator", async function () {
         await token.connect(user).approve(clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 1);
-        await clusterMarket.connect(owner).confirmOrder(1, [111], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 1, 20n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111]);
 
         // Recreate by owner
         await expect(clusterMarket.connect(owner).recreateCluster(1, [222]))
@@ -100,8 +103,8 @@ describe("SubnetClusterMarket", function () {
 
     it("should not allow non-owner/operator to recreate cluster", async function () {
         await token.connect(user).approve(clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 1);
-        await clusterMarket.connect(owner).confirmOrder(1, [111], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 1, 20n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111]);
 
         // Expire and inactive
         await ethers.provider.send("evm_increaseTime", [2]);
@@ -114,8 +117,8 @@ describe("SubnetClusterMarket", function () {
 
     it("should check areNodesInAnySameCluster returns true only for active clusters", async function () {
         await token.connect(user).approve(clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 1);
-        await clusterMarket.connect(owner).confirmOrder(1, [111, 222], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 1, 20n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222]);
 
         let same = await clusterMarket.areNodesInAnySameCluster(111, 222);
         expect(same).to.equal(true);
@@ -162,8 +165,8 @@ describe("SubnetClusterMarket", function () {
 
     it("should allow owner to add nodes to cluster", async function () {
         await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
-        await clusterMarket.connect(owner).confirmOrder(1, [111], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111]);
 
         await expect(clusterMarket.addNodesToCluster(1, [222, 333]))
             .to.emit(clusterMarket, "ClusterNodesAdded");
@@ -175,8 +178,8 @@ describe("SubnetClusterMarket", function () {
 
     it("should allow owner to remove node from cluster", async function () {
         await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
-        await clusterMarket.connect(owner).confirmOrder(1, [111, 222], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222]);
 
         await expect(clusterMarket.removeNodeFromCluster(1, 222))
             .to.emit(clusterMarket, "ClusterNodeRemoved");
@@ -187,8 +190,8 @@ describe("SubnetClusterMarket", function () {
 
     it("should allow owner to remove multiple nodes from cluster", async function () {
         await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
-        await clusterMarket.connect(owner).confirmOrder(1, [111, 222, 333], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222, 333]);
 
         await expect(clusterMarket.removeNodesFromCluster(1, [222, 333]))
             .to.not.be.reverted;
@@ -199,19 +202,19 @@ describe("SubnetClusterMarket", function () {
 
     it("should return correct clusters for a node ip", async function () {
         await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
-        await clusterMarket.connect(owner).confirmOrder(1, [111, 222], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222]);
 
         const clustersFor111 = await clusterMarket.getClustersOfNode(111);
-        expect(clustersFor111).to.include(1);
+        expect(clustersFor111).to.include(1n);
         const clustersFor222 = await clusterMarket.getClustersOfNode(222);
-        expect(clustersFor222).to.include(1);
+        expect(clustersFor222).to.include(1n);
     });
 
     it("should allow owner to update cluster ip if not expired", async function () {
         await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
-        await clusterMarket.connect(owner).confirmOrder(1, [111, 222], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222]);
 
         await clusterMarket.connect(owner).updateClusterIp(1, 333);
         const cluster = await clusterMarket.getCluster(1);
@@ -220,13 +223,34 @@ describe("SubnetClusterMarket", function () {
 
     it("should return cluster info from getCluster", async function () {
         await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
-        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10);
-        await clusterMarket.connect(owner).confirmOrder(1, [111, 222], 999);
+        await clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n);
+        await clusterMarket.connect(owner).confirmOrder(1, [111, 222]);
 
         const cluster = await clusterMarket.getCluster(1);
         expect(cluster.owner).to.equal(owner.address);
         expect(cluster.renter).to.equal(user.address);
         expect(cluster.nodeIps.length).to.equal(2);
         expect(cluster.active).to.equal(true);
+    });
+
+    it("should revert if order price is changed before user confirms", async function () {
+        await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
+        // Set resource price to 1 for all, so price = (2+3+4+5+6)*10 = 20*10 = 200
+        // Now, user expects price 200, but owner changes price before order
+        await clusterMarket.setResourcePrice(2, 3, 4, 5, 6); // price will be higher now
+
+        // Try to create order with old expected price (should revert)
+        await expect(
+            clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n)
+        ).to.be.revertedWith("Price changed, please retry");
+    });
+
+    it("should allow order if expected price matches calculated price", async function () {
+        await token.connect(user).approve(await clusterMarket.getAddress(), ethers.parseEther("1000"));
+        // Set resource price to 1 for all, so price = (2+3+4+5+6)*10 = 20*10 = 200
+        await clusterMarket.setResourcePrice(1, 1, 1, 1, 1);
+        await expect(
+            clusterMarket.connect(user).createOrder(1, 2, 3, 4, 5, 6, 10, 200n)
+        ).to.not.be.reverted;
     });
 });
