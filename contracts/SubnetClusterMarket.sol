@@ -200,7 +200,8 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
         uint256 network,
         uint256 rentalDuration,
         uint256 clusterId,
-        OrderType orderType
+        OrderType orderType,
+        uint256 expectedPrice // new param
     ) internal {
         // Calculate total price
         uint256 totalPrice =
@@ -222,6 +223,7 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
 
         require(totalPrice > 0, "Total price must be greater than 0");
         require(paymentToken != address(0), "Payment token not set");
+        require(totalPrice == expectedPrice, "Price changed, please retry"); // price check
         IERC20(paymentToken).safeTransferFrom(user, address(this), totalPrice);
 
         orders[nextOrderId] = Order({
@@ -252,7 +254,8 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
         uint256 memoryBytes,
         uint256 disk,
         uint256 network,
-        uint256 rentalDuration
+        uint256 rentalDuration,
+        uint256 expectedPrice // new param
     ) external {
         _createOrder(
             msg.sender,
@@ -264,16 +267,19 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
             network,
             rentalDuration,
             0,
-            OrderType.New
+            OrderType.New,
+            expectedPrice
         );
     }
 
     /// @notice Allows the user to extend the rental duration of their cluster.
     /// @param clusterId The ID of the cluster to extend.
     /// @param additionalDuration The additional rental duration to add.
+    /// @param expectedPrice The expected price for the extension.
     function extend(
         uint256 clusterId,
-        uint256 additionalDuration
+        uint256 additionalDuration,
+        uint256 expectedPrice // new param
     ) external {
         Cluster storage cluster = clusters[clusterId];
         require(cluster.renter == msg.sender, "Not cluster owner");
@@ -289,9 +295,9 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
             cluster.network,
             additionalDuration,
             clusterId,
-            OrderType.Extend
+            OrderType.Extend,
+            expectedPrice
         );
-
 
         Order storage order = orders[nextOrderId - 1];
         order.status = OrderStatus.Confirmed; // Mark order as confirmed
@@ -306,15 +312,16 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
     /// @param memoryBytes New memory amount.
     /// @param disk New disk amount.
     /// @param network New network amount.
+    /// @param expectedPrice The expected price for the scale.
     function scale(
         uint256 clusterId,
         uint256 gpu,
         uint256 cpu,
         uint256 memoryBytes,
         uint256 disk,
-        uint256 network
+        uint256 network,
+        uint256 expectedPrice // new param
     ) external {
-        // clusterId is used to find the main order
         Cluster storage cluster = clusters[clusterId];
         require(cluster.renter == msg.sender, "Not cluster owner");
         require(cluster.expiration > block.timestamp, "Cluster expired");
@@ -329,28 +336,23 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
             network,
             cluster.expiration -  block.timestamp,
             clusterId,
-            OrderType.Scale
+            OrderType.Scale,
+            expectedPrice
         );
-    }
-
-    /// @notice Owner can withdraw funds from contract to a renter.
-    /// @param token The ERC20 token address.
-    /// @param to The address to withdraw to.
-    /// @param amount The amount to withdraw.
-    function withdrawFund(address token, address to, uint256 amount) external onlyOwner {
-        IERC20(token).safeTransfer(to, amount);
     }
 
     /// @notice Owner or operator confirms an order and creates a Ray cluster with the given node IPs.
     /// @param orderId The ID of the order to confirm.
     /// @param nodeIps The list of node IPs for the Ray cluster.
     /// @param renterIp The renter's IP.
-    function confirmOrder(uint256 orderId, uint256[] memory nodeIps, uint256 renterIp) external {
+    /// @param expectedPrice The expected price for confirmation.
+    function confirmOrder(uint256 orderId, uint256[] memory nodeIps, uint256 renterIp, uint256 expectedPrice) external {
         require(msg.sender == owner() || msg.sender == operator, "Not authorized");
         Order storage order = orders[orderId];
         require(order.status == OrderStatus.Pending, "Order is not pending");
         require(order.orderType == OrderType.New, "Order type must be New");
         require(nodeIps.length > 0, "Node IPs required");
+        require(order.paidAmount == expectedPrice, "Order price mismatch");
 
         // Mark order as confirmed
         order.status = OrderStatus.Confirmed;
@@ -584,5 +586,13 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
     /// @return cluster The Cluster struct.
     function getCluster(uint256 clusterId) external view returns (Cluster memory) {
         return clusters[clusterId];
+    }
+
+    /// @notice Owner can withdraw funds from contract to a renter.
+    /// @param token The ERC20 token address.
+    /// @param to The address to withdraw to.
+    /// @param amount The amount to withdraw.
+    function withdrawFund(address token, address to, uint256 amount) external onlyOwner {
+        IERC20(token).safeTransfer(to, amount);
     }
 }
