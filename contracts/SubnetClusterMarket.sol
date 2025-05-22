@@ -4,8 +4,9 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
+contract SubnetClusterMarket is Initializable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct Cluster {
@@ -466,7 +467,7 @@ contract SubnetClusterMarket is Initializable, OwnableUpgradeable {
 
     /// @notice Allows the user to cancel their order if it is still pending.
     /// @param orderId The ID of the order to cancel.
-    function cancelOrder(uint256 orderId) external {
+    function cancelOrder(uint256 orderId) external nonReentrant {
         Order storage order = orders[orderId];
         require(order.status == OrderStatus.Pending, "Order is not pending");
         require(order.user == msg.sender, "Not order owner");
