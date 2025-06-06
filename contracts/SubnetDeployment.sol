@@ -14,6 +14,8 @@ contract SubnetDeployment is Initializable {
     struct Deployment {
         string dockerConfig;
         address owner; // App owner who created the deployment
+        uint256 createdAt; // Timestamp when deployment was created
+        uint256 updatedAt; // Timestamp when deployment was last updated
     }
 
     // Reference to SubnetAppStore
@@ -55,7 +57,9 @@ contract SubnetDeployment is Initializable {
         // Create a new deployment
         Deployment memory newDeployment = Deployment({
             dockerConfig: dockerConfig,
-            owner: msg.sender
+            owner: msg.sender,
+            createdAt: block.timestamp,
+            updatedAt: block.timestamp
         });
 
         // Store the deployment in the mapping
@@ -82,6 +86,7 @@ contract SubnetDeployment is Initializable {
         require(deployment.owner == msg.sender, "Only deployment owner can update");
         
         deployment.dockerConfig = dockerConfig;
+        deployment.updatedAt = block.timestamp;
         
         emit SubnetDeploymentUpdated(appId, nodeIp, dockerConfig);
     }
@@ -119,7 +124,10 @@ contract SubnetDeployment is Initializable {
         uint256[] memory nodeIps
     ) public {
         for (uint256 i = 0; i < nodeIps.length; i++) {
-            deleteDeployment(appId, nodeIps[i]);
+            if (nodeDeployments[appId][nodeIps[i]].owner == msg.sender) {
+                delete nodeDeployments[appId][nodeIps[i]];
+                emit SubnetDeploymentDeleted(appId, nodeIps[i], msg.sender);
+            }
         }
     }
 
@@ -127,7 +135,7 @@ contract SubnetDeployment is Initializable {
      * @dev Gets the deployment information for a specific app and node
      * @param appId The ID of the application.
      * @param nodeIp The IP address of the node.
-     * @return The Deployment struct containing the Docker configuration and owner
+     * @return The Deployment struct containing the Docker configuration, owner, and timestamps
      */
     function getDeployment(uint256 appId, uint256 nodeIp) public view returns (Deployment memory) {
         return nodeDeployments[appId][nodeIp];
@@ -142,5 +150,47 @@ contract SubnetDeployment is Initializable {
     function deploymentExists(uint256 appId, uint256 nodeIp) public view returns (bool) {
         // Check if a non-empty deployment exists (owner address is not zero)
         return nodeDeployments[appId][nodeIp].owner != address(0);
+    }
+    
+    /**
+     * @dev Gets the deployment duration in seconds
+     * @param appId The ID of the application.
+     * @param nodeIp The IP address of the node.
+     * @return duration The time in seconds since deployment creation
+     */
+    function getDeploymentDuration(uint256 appId, uint256 nodeIp) public view returns (uint256 duration) {
+        Deployment memory deployment = nodeDeployments[appId][nodeIp];
+        require(deployment.owner != address(0), "Deployment does not exist");
+        
+        return block.timestamp - deployment.createdAt;
+    }
+    
+    /**
+     * @dev Gets the time since last update in seconds
+     * @param appId The ID of the application.
+     * @param nodeIp The IP address of the node.
+     * @return timeSinceUpdate The time in seconds since last update
+     */
+    function getTimeSinceUpdate(uint256 appId, uint256 nodeIp) public view returns (uint256 timeSinceUpdate) {
+        Deployment memory deployment = nodeDeployments[appId][nodeIp];
+        require(deployment.owner != address(0), "Deployment does not exist");
+        
+        return block.timestamp - deployment.updatedAt;
+    }
+    
+    /**
+     * @dev Gets deployments for a specific app
+     * @param appId The ID of the application.
+     * @param nodeIps Array of node IP addresses to get deployments for.
+     * @return deployments Array of Deployment structs
+     */
+    function getDeployments(uint256 appId, uint256[] memory nodeIps) public view returns (Deployment[] memory deployments) {
+        deployments = new Deployment[](nodeIps.length);
+        
+        for (uint256 i = 0; i < nodeIps.length; i++) {
+            deployments[i] = nodeDeployments[appId][nodeIps[i]];
+        }
+        
+        return deployments;
     }
 }
