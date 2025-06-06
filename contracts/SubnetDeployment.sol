@@ -25,6 +25,7 @@ contract SubnetDeployment is Initializable {
     // Events
     event SubnetDeployed(uint256 indexed appId, uint256 indexed nodeIp, address indexed owner);
     event SubnetDeploymentUpdated(uint256 indexed appId, uint256 indexed nodeIp, string dockerConfig);
+    event SubnetDeploymentDeleted(uint256 indexed appId, uint256 indexed nodeIp, address indexed owner);
     
     /**
      * @dev Initializes the contract with a reference to the SubnetAppStore.
@@ -85,6 +86,43 @@ contract SubnetDeployment is Initializable {
         emit SubnetDeploymentUpdated(appId, nodeIp, dockerConfig);
     }
     
+    /**
+     * @dev Deletes an existing subnet deployment
+     * Only the owner of the application can delete the deployment.
+     * @param appId The ID of the application.
+     * @param nodeIp The IP address of the node.
+     */
+    function deleteDeployment(
+        uint256 appId,
+        uint256 nodeIp
+    ) public {
+        Deployment storage deployment = nodeDeployments[appId][nodeIp];
+        require(deployment.owner == msg.sender, "Only deployment owner can delete");
+        
+        // Store the owner for the event
+        address owner = deployment.owner;
+        
+        // Delete the deployment by resetting its values
+        delete nodeDeployments[appId][nodeIp];
+        
+        emit SubnetDeploymentDeleted(appId, nodeIp, owner);
+    }
+
+    /**
+     * @dev Batch deletes multiple subnet deployments
+     * Only the owner of the application can delete the deployments.
+     * @param appId The ID of the application.
+     * @param nodeIps Array of node IP addresses to delete deployments from.
+     */
+    function batchDeleteDeployments(
+        uint256 appId,
+        uint256[] memory nodeIps
+    ) public {
+        for (uint256 i = 0; i < nodeIps.length; i++) {
+            deleteDeployment(appId, nodeIps[i]);
+        }
+    }
+
     /**
      * @dev Gets the deployment information for a specific app and node
      * @param appId The ID of the application.
