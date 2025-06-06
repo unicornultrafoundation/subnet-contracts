@@ -10,5 +10,11 @@
   "SubnetVerifier#TransparentUpgradeableProxy": "0x50a734427B851aec24F28326818B869ec83D1732",
   "SubnetVerifier#ProxyAdmin": "0x160C82208FBAc6E2Ad529F758848C7729c45a707",
   "SubnetToken#SubnetToken": "0x49E51211bEb16cD2fDcF3FFe577caA90a8566a2A",
-  "SubnetAppStoreV2#SubnetAppStoreV2": "0x406f2Ea106D821B3aEeCe0F4F746B0d089dBed60"
+  "SubnetAppStoreV2#SubnetAppStoreV2": "0x406f2Ea106D821B3aEeCe0F4F746B0d089dBed60",
+  "SubnetIPRegistry#SubnetIPRegistry": "0x10E50e54bf48fb48fd8BFDe01d2E3562024C8Cf4",
+  "SubnetIPRegistry#TransparentUpgradeableProxy": "0x2b10655616BaAf58BF250A8fC48F6877B5281eC9",
+  "SubnetIPRegistry#ProxyAdmin": "0x7e14F23136DB94EF410479404FFFE4CC601E3fCB",
+  "SubnetClusterMarket#SubnetClusterMarket": "0x55Fe67Ee144BcC275bF5B4D50a7A9F36f8CBF637",
+  "SubnetClusterMarket#TransparentUpgradeableProxy": "0xd1A7Ca9321C269161c6EFF5B2E55aB924B3CCd43",
+  "SubnetClusterMarket#ProxyAdmin": "0x0cd4E5D12936E63795172b07fb73eba4D20f968e"
 }
