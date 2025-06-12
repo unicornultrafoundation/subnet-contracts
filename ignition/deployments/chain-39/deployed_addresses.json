@@ -16,5 +16,8 @@
   "SubnetIPRegistry#ProxyAdmin": "0x7e14F23136DB94EF410479404FFFE4CC601E3fCB",
   "SubnetClusterMarket#SubnetClusterMarket": "0x55Fe67Ee144BcC275bF5B4D50a7A9F36f8CBF637",
   "SubnetClusterMarket#TransparentUpgradeableProxy": "0xd1A7Ca9321C269161c6EFF5B2E55aB924B3CCd43",
-  "SubnetClusterMarket#ProxyAdmin": "0x0cd4E5D12936E63795172b07fb73eba4D20f968e"
+  "SubnetClusterMarket#ProxyAdmin": "0x0cd4E5D12936E63795172b07fb73eba4D20f968e",
+  "SubnetDeployment#SubnetDeployment": "0xc259D9e6577acc41fAd9c957DA2838047B99CEbC",
+  "SubnetDeployment#TransparentUpgradeableProxy": "0x19278e70EA28c06E628BF28B2536BD2634FdcfF3",
+  "SubnetDeployment#ProxyAdmin": "0xf6Dd083Da89b39A2f65FF69CDF3f83f64f1Bc1FB"
 }
