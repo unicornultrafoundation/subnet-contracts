@@ -31,6 +31,8 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 slashedAmount;    // Total amount slashed from provider
         uint256 tokenId;          // NFT token ID for this provider
         string metadata;       // Additional metadata URI
+        bool isSlashed;         // Whether the provider has been slashed
+        bool isActive;          // Whether the provider is currently active
     }
 
     struct Machine {
@@ -44,6 +46,8 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 gpuMemory;   // GPU memory in MB
         uint256 memoryMB;    // RAM in MB
         uint256 diskGB;      // Storage in GB
+        uint256 uploadSpeed; // Upload speed in Mbps (optional)
+        uint256 downloadSpeed; // Download speed in Mbps (optional)
         uint256 publicIp;     // Public IP address
         uint256 overlayIp;    // Overlay network IP address
         uint256 createdAt;
@@ -198,9 +202,12 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             totalStaked: 0,
             pendingWithdrawals: 0,
             slashedAmount: 0,
-            tokenId: tokenId
+            tokenId: tokenId,
+            isSlashed: false,
+            isActive: true
+            
         });
-        
+
         return tokenId;
     }
 
@@ -250,9 +257,12 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 diskGB,
         uint256 publicIp,
         uint256 overlayIp,
+        uint256 uploadSpeed,
+        uint256 downloadSpeed,
         string memory metadata
     ) external returns (uint256) {
         require(providers[providerId].registered, "Provider not registered");
+        require(!providers[providerId].isSlashed, "Provider is slashed");
         require(ownerOf(providerId) == msg.sender, "Only token owner can add machine");
 
         // Calculate required stake amount based on resources
@@ -287,7 +297,9 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             removedAt: 0,
             unlockTime: 0,
             withdrawalProcessed: false,
-            metadata: metadata
+            metadata: metadata,
+            uploadSpeed: uploadSpeed,
+            downloadSpeed: downloadSpeed
         });
 
         providerMachines[providerId].push(machine);
@@ -316,6 +328,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         string memory metadata
     ) external {
         require(providers[providerId].registered, "Provider not registered");
+        require(!providers[providerId].isSlashed, "Provider is slashed");
         require(ownerOf(providerId) == msg.sender, "Only token owner can update machine");
         require(machineId < providers[providerId].machineCount, "Invalid machine ID");
 
@@ -393,6 +406,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      */
     function claimWithdrawal(uint256 providerId, uint256 machineId) external {
         require(providers[providerId].registered, "Provider not registered");
+        require(!providers[providerId].isSlashed, "Provider is slashed");
         require(machineId < providerMachines[providerId].length, "Invalid machine ID");
 
         Machine storage machine = providerMachines[providerId][machineId];
@@ -435,6 +449,8 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         machine.stakeAmount -= amount;
         provider.totalStaked -= amount;
         provider.slashedAmount += amount;
+        provider.isSlashed = true;
+        provider.isActive = false;
         totalSlashed += amount;
 
         emit StakeSlashed(providerId, machineId, amount, reason);
@@ -467,7 +483,6 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      * @return Array of Machine structs
      */
     function getMachines(uint256 providerId) external view returns (Machine[] memory) {
-        require(providers[providerId].registered, "Provider not registered");
         return providerMachines[providerId];
     }
     
@@ -480,6 +495,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      */
     function getMachinesPaginated(uint256 providerId, uint256 start, uint256 end) external view returns (Machine[] memory) {
         require(providers[providerId].registered, "Provider not registered");
+        require(!providers[providerId].isSlashed, "Provider is slashed");
         require(start <= end, "Invalid range: start must be <= end");
         require(end <= providerMachines[providerId].length, "End index out of bounds");
         
@@ -502,6 +518,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      */
     function getActiveMachinesPaginated(uint256 providerId, uint256 start, uint256 limit) external view returns (Machine[] memory) {
         require(providers[providerId].registered, "Provider not registered");
+        require(!providers[providerId].isSlashed, "Provider is slashed");
         require(start < providerMachines[providerId].length, "Start index out of bounds");
         
         // Count active machines first to allocate properly sized array
@@ -565,8 +582,77 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      */
     function setProviderOperator(uint256 providerId, address newOperator) external {
         require(ownerOf(providerId) == msg.sender, "Only token owner can set operator");
+        require(!providers[providerId].isSlashed, "Provider is slashed");
         providers[providerId].operator = newOperator;
         providers[providerId].updatedAt = block.timestamp;
+    }
+
+    /**
+     * @dev Check if a machine is currently active
+     * @param providerId ID of the provider
+     * @param machineId ID of the machine
+     * @return True if the machine is active, false otherwise
+     */
+    function isMachineActive(uint256 providerId, uint256 machineId) external view returns (bool) {
+        return providers[providerId].registered && 
+            !providers[providerId].isSlashed && 
+            machineId < providerMachines[providerId].length && 
+            providerMachines[providerId][machineId].active;
+    }
+    
+    /**
+     * @dev Validate if a machine meets minimum requirements
+     * @param providerId ID of the provider
+     * @param machineId ID of the machine
+     * @param minCpuCores Minimum CPU cores required
+     * @param minMemoryMB Minimum memory required
+     * @param minDiskGB Minimum disk space required
+     * @param minGpuCores Minimum GPU cores required
+     * @return True if machine meets requirements
+     */
+    function validateMachineRequirements(
+        uint256 providerId,
+        uint256 machineId,
+        uint256 minCpuCores,
+        uint256 minMemoryMB,
+        uint256 minDiskGB,
+        uint256 minGpuCores,
+        uint256 minUploadSpeed,
+        uint256 minDownloadSpeed
+    ) external view returns (bool) {
+        // Check if provider and machine exist
+        if (!providers[providerId].registered || providers[providerId].isSlashed || machineId >= providerMachines[providerId].length) {
+            return false;
+        }
+        
+        Machine memory machine = providerMachines[providerId][machineId];
+        
+        // Machine must be active and meet all requirements
+        return machine.active &&
+               machine.cpuCores >= minCpuCores &&
+               machine.memoryMB >= minMemoryMB &&
+               machine.diskGB >= minDiskGB &&
+               machine.gpuCores >= minGpuCores &&
+               machine.uploadSpeed >= minUploadSpeed &&
+               machine.downloadSpeed >= minDownloadSpeed;
+    }
+    
+    /**
+     * @dev Get provider details
+     * @param providerId ID of the provider
+     * @return provider Provider struct with details
+     */
+    function getProvider(uint256 providerId) external view returns (Provider memory provider ) {
+        return providers[providerId];
+    }
+
+    /**
+     * @dev Get provider owner address
+     * @param providerId ID of the provider
+     * @return Address of the provider's NFT owner
+     */
+    function getProviderOwner(uint256 providerId) external view returns (address) {
+        return ownerOf(providerId);
     }
 }
 

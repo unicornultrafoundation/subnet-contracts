@@ -5,10 +5,9 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "./ISubnetProvider.sol";
 
-interface ISubnetProvider {
-    function isProviderOperatorOrOwner(uint256 providerId, address account) external view returns (bool);
-}
 
 contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     using SafeERC20 for IERC20;
@@ -27,8 +26,17 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         uint256 acceptedBidPricePerSecond;
         uint256 parentOrderId;
         address paymentToken;
-        string specs;
-        address acceptedProvider; // Add to track accepted provider
+        uint256 cpuCores;    // Number of CPU cores
+        uint256 gpuCores;    // GPU cores (0 if no GPU)
+        uint256 gpuMemory;   // GPU memory in MB
+        uint256 memoryMB;    // RAM in MB
+        uint256 diskGB;      // Storage in GB
+        uint256 uploadMbps; // Upload speed in Mbps
+        uint256 downloadMbps; // Download speed in Mbps
+        uint256 region; // Region ID (0 if not specified)
+        string specs; // Resource specifications
+        uint256 acceptedProviderId; // Provider NFT ID that was selected
+        uint256 acceptedMachineId; // Machine ID that was selected
         uint256 startAt; // Add start time
         uint256 expiredAt; // Add expiration time
         uint256 lastPaidAt; // Add last paid time
@@ -56,6 +64,11 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     address public paymentToken;
     address public subnetProviderContract;
 
+    // Platform fee variables
+    uint256 public platformFeePercentage; // Fee percentage in basis points (e.g., 100 = 1%)
+    address public platformWallet; // Address where fees will be sent
+    uint256 public totalAccumulatedFees; // Total fees collected by platform
+
     // Events
     event OrderCreated(uint256 indexed orderId, address owner, uint256 duration);
     event BidSubmitted(uint256 indexed orderId, address indexed provider, uint256 price, uint256 providerId, uint256 machineId);
@@ -67,6 +80,9 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     event BidTimeExpired(uint256 indexed orderId);
     event BidTimeLimitUpdated(uint256 oldLimit, uint256 newLimit);
     event OrderClosed(uint256 indexed orderId, uint256 refundAmount, string reason);
+    event PlatformFeeUpdated(uint256 oldFee, uint256 newFee);
+    event PlatformWalletUpdated(address oldWallet, address newWallet);
+    event FeesWithdrawn(address wallet, uint256 amount);
 
     /**
      * @dev Initialize the contract (only callable once).
@@ -78,6 +94,8 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         paymentToken = _paymentToken;
         subnetProviderContract = _subnetProviderContract;
         bidTimeLimit = 5 minutes; // Set default to 5 minutes
+        platformFeePercentage = 100; // Default 1%
+        platformWallet = owner; // Default to contract owner
     }
 
     /**
@@ -122,6 +140,14 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         uint256 duration,
         uint256 minBidPrice,
         uint256 maxBidPrice,
+        uint256 region,
+        uint256 cpuCores,
+        uint256 gpuCores,
+        uint256 gpuMemory,
+        uint256 memoryMB,
+        uint256 diskGB,
+        uint256 uploadMbps,
+        uint256 downloadMbps,
         string memory specs
     ) external returns (uint256) {
         require(paymentToken != address(0), "Payment token not set");
@@ -141,10 +167,19 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
             parentOrderId: 0,
             paymentToken: paymentToken,
             specs: specs,
-            acceptedProvider: address(0),
+            acceptedProviderId: 0,
+            acceptedMachineId: 0,
             startAt: 0,
             expiredAt: 0,
-            lastPaidAt: 0
+            lastPaidAt: 0,
+            cpuCores: cpuCores,
+            gpuCores: gpuCores,
+            gpuMemory: gpuMemory,
+            memoryMB: memoryMB,
+            diskGB: diskGB,
+            uploadMbps: uploadMbps,
+            downloadMbps: downloadMbps,
+            region: region
         });
         emit OrderCreated(orderCount, msg.sender, duration);
         return orderCount;
@@ -169,12 +204,27 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         require(pricePerSecond >= order.minBidPrice, "Bid price below minimum");
         require(pricePerSecond <= order.maxBidPrice, "Bid price above maximum");
         
+        ISubnetProvider providerContract = ISubnetProvider(subnetProviderContract);
+
         // Check if the caller is the provider owner or operator
-        require(
-            ISubnetProvider(subnetProviderContract).isProviderOperatorOrOwner(providerId, msg.sender),
+        require(providerContract.isProviderOperatorOrOwner(providerId, msg.sender),
             "Not authorized to bid for this provider"
         );
-        
+
+        require(
+            providerContract.validateMachineRequirements(
+                providerId,
+                machineId,
+                order.cpuCores,
+                order.memoryMB,
+                order.diskGB,
+                order.gpuCores,
+                order.uploadMbps,
+                order.downloadMbps
+            ),
+            "Machine does not meet requirements"
+        );
+
         orderBids[orderId].push(Bid({
             provider: msg.sender,
             pricePerSecond: pricePerSecond,
@@ -202,16 +252,23 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         Bid storage bid = orderBids[orderId][bidIndex];
         require(bid.status == BidStatus.Pending, "Bid not pending");
 
+        // Check if provider and machine are valid
+        ISubnetProvider providerContract = ISubnetProvider(subnetProviderContract);
+        require(providerContract.isMachineActive(bid.providerId, bid.machineId), "Machine does not exist");
+
         // Payment logic: renter pays (pricePerSecond * duration) to contract
         require(order.paymentToken != address(0), "Payment token not set");
         uint256 totalCost = bid.pricePerSecond * order.duration;
+        
+        // Transfer full amount from user
         IERC20(order.paymentToken).safeTransferFrom(msg.sender, address(this), totalCost);
 
         // Update bid and order status
         bid.status = BidStatus.Accepted;
         order.status = OrderStatus.Matched;
         order.acceptedBidPricePerSecond = bid.pricePerSecond;
-        order.acceptedProvider = bid.provider;
+        order.acceptedProviderId = bid.providerId;
+        order.acceptedMachineId = bid.machineId;
         order.startAt = block.timestamp;
         order.expiredAt = block.timestamp + order.duration;
         order.lastPaidAt = block.timestamp;
@@ -259,26 +316,24 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
      * @dev Extend the duration of an order.
      * Only the order owner can extend, and only if not expired.
      * @param orderId The order ID.
-     * @param additionalDuration Additional duration in seconds to extend.
      */
-    function extend(uint256 orderId, uint256 additionalDuration) external {
+    function extend(uint256 orderId) external {
         Order storage order = orders[orderId];
         require(order.owner == msg.sender, "Only order owner can extend");
         require(order.status == OrderStatus.Matched, "Order not matched");
         require(block.timestamp < order.expiredAt, "Order already expired");
-        require(additionalDuration > 0, "Duration must be positive");
 
         uint256 pricePerSecond = order.acceptedBidPricePerSecond;
         require(pricePerSecond > 0, "Price not set");
 
-        uint256 totalCost = additionalDuration * pricePerSecond;
+        uint256 totalCost = order.duration * pricePerSecond;
+        
         IERC20(order.paymentToken).safeTransferFrom(msg.sender, address(this), totalCost);
 
         // Update expiration
-        order.duration += additionalDuration;
-        order.expiredAt += additionalDuration;
+        order.expiredAt += order.duration;
 
-        emit OrderExtended(orderId, additionalDuration, order.expiredAt);
+        emit OrderExtended(orderId, order.duration, order.expiredAt);
     }
 
 
@@ -302,7 +357,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     function closeOrder(uint256 orderId, string memory reason) external {
         Order storage order = orders[orderId];
         require(order.status == OrderStatus.Matched, "Order not active");
-        require(order.owner == msg.sender || owner() == msg.sender, "Not authorized");
+        require(order.owner == msg.sender, "Not authorized");
         
         // Calculate time used and remaining time
         uint256 timeUsed = block.timestamp > order.lastPaidAt ? 
@@ -314,13 +369,28 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         uint256 paymentForProvider = timeUsed * order.acceptedBidPricePerSecond;
         uint256 refundAmount = remainingTime * order.acceptedBidPricePerSecond;
         
+      
+        
         // Update order status
         order.status = OrderStatus.Closed;
         order.lastPaidAt = block.timestamp;
+
+        bool providerActive = ISubnetProvider(subnetProviderContract).isMachineActive(order.acceptedProviderId, order.acceptedMachineId);
         
         // Process payments if needed
-        if (paymentForProvider > 0 && order.acceptedProvider != address(0)) {
-            IERC20(order.paymentToken).safeTransfer(order.acceptedProvider, paymentForProvider);
+        if (paymentForProvider > 0 && !providerActive) {
+              // Apply platform fee to provider payment
+            uint256 platformFee = 0;
+            if (paymentForProvider > 0) {
+                platformFee = calculateFee(paymentForProvider);
+                paymentForProvider -= platformFee;
+                totalAccumulatedFees += platformFee;
+            }
+
+            address providerOwner = IERC721(subnetProviderContract).ownerOf(order.acceptedProviderId);
+            IERC20(order.paymentToken).safeTransfer(providerOwner, paymentForProvider);
+        } else {
+           refundAmount += paymentForProvider; // If provider is inactive, refund the full amount
         }
         
         if (refundAmount > 0) {
@@ -355,8 +425,8 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     function claimPayment(uint256 orderId) external {
         Order storage order = orders[orderId];
         require(order.status == OrderStatus.Matched, "Order not matched");
-        require(order.acceptedProvider == msg.sender, "Only accepted provider can claim");
-        
+        ISubnetProvider providerContract = ISubnetProvider(subnetProviderContract);
+        require(providerContract.isMachineActive(order.acceptedProviderId, order.acceptedMachineId), "Machine does not exist");
         // Calculate time used since last payment
         uint256 endTime = block.timestamp < order.expiredAt ? block.timestamp : order.expiredAt;
         require(endTime > order.lastPaidAt, "No new time to pay for");
@@ -367,10 +437,62 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         uint256 totalPayment = actualTimeUsed * order.acceptedBidPricePerSecond;
         require(totalPayment > 0, "Nothing to claim");
         
+        // Apply platform fee
+        uint256 platformFee = calculateFee(totalPayment);
+        uint256 providerPayment = totalPayment - platformFee;
+        totalAccumulatedFees += platformFee;
+        
         // Update lastPaidAt to prevent double payment
         order.lastPaidAt = endTime;
+
+        address providerOwner = IERC721(subnetProviderContract).ownerOf(order.acceptedProviderId);
+        require(providerOwner != address(0), "Provider does not exist");
         
-        // Send payment to the provider
-        IERC20(order.paymentToken).safeTransfer(msg.sender, totalPayment);
+        // Send payment to the provider (after fee)
+        IERC20(order.paymentToken).safeTransfer(providerOwner, providerPayment);
+    }
+
+    /**
+     * @dev Set platform fee percentage (admin only)
+     * @param newFeePercentage New fee percentage in basis points (100 = 1%)
+     */
+    function setPlatformFee(uint256 newFeePercentage) external onlyOwner {
+        require(newFeePercentage <= 2000, "Fee cannot exceed 20%");
+        uint256 oldFee = platformFeePercentage;
+        platformFeePercentage = newFeePercentage;
+        emit PlatformFeeUpdated(oldFee, newFeePercentage);
+    }
+
+    /**
+     * @dev Set platform wallet address (admin only)
+     * @param newWallet New wallet address
+     */
+    function setPlatformWallet(address newWallet) external onlyOwner {
+        require(newWallet != address(0), "Cannot set zero address");
+        address oldWallet = platformWallet;
+        platformWallet = newWallet;
+        emit PlatformWalletUpdated(oldWallet, newWallet);
+    }
+
+    /**
+     * @dev Withdraw accumulated fees (admin only)
+     * @param amount Amount to withdraw
+     */
+    function withdrawFees(uint256 amount) external onlyOwner {
+        require(amount <= totalAccumulatedFees, "Insufficient fee balance");
+        
+        totalAccumulatedFees -= amount;
+        IERC20(paymentToken).safeTransfer(platformWallet, amount);
+        
+        emit FeesWithdrawn(platformWallet, amount);
+    }
+
+    /**
+     * @dev Calculate fee amount based on platform fee percentage
+     * @param amount Base amount
+     * @return Fee amount
+     */
+    function calculateFee(uint256 amount) internal view returns (uint256) {
+        return (amount * platformFeePercentage) / 10000;
     }
 }
