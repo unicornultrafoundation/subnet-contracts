@@ -106,7 +106,6 @@ describe("SubnetBidMarketplace", function () {
     describe("Order Management", function() {
         it("should create a new order", async function() {
             const tx = await marketplace.connect(client1).createOrder(
-                "order-metadata",
                 7 * 24 * 60 * 60, // 1 week duration
                 ethers.parseEther("0.1"), // minBidPrice
                 ethers.parseEther("1.0"), // maxBidPrice
@@ -129,7 +128,6 @@ describe("SubnetBidMarketplace", function () {
             
             expect(order.owner).to.equal(client1.address);
             expect(order.status).to.equal(0); // Open status
-            expect(order.metadata).to.equal("order-metadata");
             expect(order.duration).to.equal(7 * 24 * 60 * 60);
             expect(order.minBidPrice).to.equal(ethers.parseEther("0.1"));
             expect(order.maxBidPrice).to.equal(ethers.parseEther("1.0"));
@@ -140,7 +138,6 @@ describe("SubnetBidMarketplace", function () {
 
         it("should check if bidding is open", async function() {
             await marketplace.connect(client1).createOrder(
-                "order-metadata",
                 7 * 24 * 60 * 60, // 1 week duration
                 ethers.parseEther("0.1"), // minBidPrice
                 ethers.parseEther("1.0"), // maxBidPrice
@@ -167,7 +164,6 @@ describe("SubnetBidMarketplace", function () {
 
         it("should return remaining bid time", async function() {
             await marketplace.connect(client1).createOrder(
-                "order-metadata",
                 7 * 24 * 60 * 60, // 1 week duration
                 ethers.parseEther("0.1"), // minBidPrice
                 ethers.parseEther("1.0"), // maxBidPrice
@@ -196,7 +192,6 @@ describe("SubnetBidMarketplace", function () {
 
         it("should allow order cancellation by owner", async function() {
             await marketplace.connect(client1).createOrder(
-                "order-metadata",
                 7 * 24 * 60 * 60, // 1 week duration
                 ethers.parseEther("0.1"), // minBidPrice
                 ethers.parseEther("1.0"), // maxBidPrice
@@ -220,7 +215,6 @@ describe("SubnetBidMarketplace", function () {
 
         it("should not allow non-owner to cancel order", async function() {
             await marketplace.connect(client1).createOrder(
-                "order-metadata",
                 7 * 24 * 60 * 60, // 1 week duration
                 ethers.parseEther("0.1"), // minBidPrice
                 ethers.parseEther("1.0"), // maxBidPrice
@@ -246,7 +240,6 @@ describe("SubnetBidMarketplace", function () {
         beforeEach(async function() {
             // Create an order for bidding tests
             await marketplace.connect(client1).createOrder(
-                "order-metadata",
                 7 * 24 * 60 * 60, // 1 week duration
                 ethers.parseEther("0.1"), // minBidPrice
                 ethers.parseEther("1.0"), // maxBidPrice
@@ -285,7 +278,6 @@ describe("SubnetBidMarketplace", function () {
         it("should validate machine meets order requirements", async function() {
             // Create an order with requirements higher than machine capabilities
             await marketplace.connect(client1).createOrder(
-                "high-req-order",
                 7 * 24 * 60 * 60, // 1 week duration
                 ethers.parseEther("0.1"), // minBidPrice
                 ethers.parseEther("1.0"), // maxBidPrice
@@ -412,7 +404,6 @@ describe("SubnetBidMarketplace", function () {
         beforeEach(async function() {
             // Create an order
             await marketplace.connect(client1).createOrder(
-                "order-metadata",
                 7 * 24 * 60 * 60, // 1 week duration
                 ethers.parseEther("0.1"), // minBidPrice
                 ethers.parseEther("1.0"), // maxBidPrice
@@ -492,7 +483,6 @@ describe("SubnetBidMarketplace", function () {
         beforeEach(async function() {
             // Create and match an order
             await marketplace.connect(client1).createOrder(
-                "order-metadata",
                 7 * 24 * 60 * 60, // 1 week duration
                 ethers.parseEther("0.1"), // minBidPrice
                 ethers.parseEther("1.0"), // maxBidPrice

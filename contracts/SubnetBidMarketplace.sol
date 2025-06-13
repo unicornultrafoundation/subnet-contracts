@@ -19,7 +19,6 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         address owner;
         OrderStatus status;
         uint256 createdAt;
-        string metadata;
         uint256 duration; 
         uint256 minBidPrice;
         uint256 maxBidPrice;
@@ -129,14 +128,12 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     
     /**
      * @dev Renter creates an order.
-     * @param metadata Metadata for the order.
      * @param duration Duration (in seconds) for the order.
      * @param minBidPrice Minimum bid price allowed.
      * @param maxBidPrice Maximum bid price allowed.
      * @param specs Resource specifications.
      */
     function createOrder(
-        string memory metadata,
         uint256 duration,
         uint256 minBidPrice,
         uint256 maxBidPrice,
@@ -159,7 +156,6 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
             owner: msg.sender,
             status: OrderStatus.Open,
             createdAt: block.timestamp,
-            metadata: metadata,
             duration: duration,
             minBidPrice: minBidPrice,
             maxBidPrice: maxBidPrice,
