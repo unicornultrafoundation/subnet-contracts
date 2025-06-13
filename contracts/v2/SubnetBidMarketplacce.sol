@@ -375,11 +375,11 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         order.status = OrderStatus.Closed;
         order.lastPaidAt = block.timestamp;
 
-        bool providerActive = ISubnetProvider(subnetProviderContract).isMachineActive(order.acceptedProviderId, order.acceptedMachineId);
+        bool isMachineActive = ISubnetProvider(subnetProviderContract).isMachineActive(order.acceptedProviderId, order.acceptedMachineId);
         
         // Process payments if needed
-        if (paymentForProvider > 0 && !providerActive) {
-              // Apply platform fee to provider payment
+        if (paymentForProvider > 0 && isMachineActive) {
+            // Apply platform fee to provider payment
             uint256 platformFee = 0;
             if (paymentForProvider > 0) {
                 platformFee = calculateFee(paymentForProvider);
