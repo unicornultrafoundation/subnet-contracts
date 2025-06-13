@@ -73,6 +73,8 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
     uint256 public gpuStakeRate;         // Tokens per GPU core
     uint256 public memoryStakeRate;      // Tokens per GB of memory
     uint256 public diskStakeRate;        // Tokens per GB of disk
+    uint256 public uploadSpeedStakeRate;  // Tokens per Mbps of upload speed
+    uint256 public downloadSpeedStakeRate; // Tokens per Mbps of download speed
 
     // Counter for NFT token IDs
     uint256 private _nextTokenId;
@@ -90,7 +92,9 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 cpuRate, 
         uint256 gpuRate, 
         uint256 memoryRate, 
-        uint256 diskRate
+        uint256 diskRate,
+        uint256 uploadSpeedRate,
+        uint256 downloadSpeedRate
     );
 
     /**
@@ -104,12 +108,14 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         stakingToken = _stakingToken;
         _nextTokenId = 1; // Start token IDs from 1
         
-        // Set default stake parameters
-        baseStakeAmount = 1000 * 10**18; // Default 1000 tokens with 18 decimals
-        cpuStakeRate = 50 * 10**18;      // 50 tokens per CPU core
-        gpuStakeRate = 500 * 10**18;     // 500 tokens per GPU core
-        memoryStakeRate = 10 * 10**18;   // 10 tokens per GB of RAM
-        diskStakeRate = 1 * 10**18;      // 1 token per GB of disk
+        // Set default stake parameters with more accurate resource pricing
+        baseStakeAmount = 500 * 10**18;  // Base stake for participating (500 tokens)
+        cpuStakeRate = 100 * 10**18;     // 100 tokens per CPU core
+        gpuStakeRate = 1000 * 10**18;    // 1000 tokens per GPU core (premium resource)
+        memoryStakeRate = 20 * 10**18;   // 20 tokens per GB of RAM
+        diskStakeRate = 2 * 10**18;      // 2 tokens per GB of disk
+        uploadSpeedStakeRate = 10 * 10**18;  // 10 tokens per Mbps upload (premium for good upload)
+        downloadSpeedStakeRate = 5 * 10**18; // 5 tokens per Mbps download
         
         lockPeriod = 3 weeks; // Default 3 weeks lock period
     }
@@ -121,26 +127,34 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      * @param newGpuStakeRate New GPU stake rate (tokens per core)
      * @param newMemoryStakeRate New memory stake rate (tokens per GB)
      * @param newDiskStakeRate New disk stake rate (tokens per GB)
+     * @param newUploadSpeedStakeRate New upload speed stake rate (tokens per Mbps)
+     * @param newDownloadSpeedStakeRate New download speed stake rate (tokens per Mbps)
      */
     function setStakeParameters(
         uint256 newBaseStakeAmount,
         uint256 newCpuStakeRate,
         uint256 newGpuStakeRate,
         uint256 newMemoryStakeRate,
-        uint256 newDiskStakeRate
+        uint256 newDiskStakeRate,
+        uint256 newUploadSpeedStakeRate,
+        uint256 newDownloadSpeedStakeRate
     ) external onlyOwner {
         baseStakeAmount = newBaseStakeAmount;
         cpuStakeRate = newCpuStakeRate;
         gpuStakeRate = newGpuStakeRate;
         memoryStakeRate = newMemoryStakeRate;
         diskStakeRate = newDiskStakeRate;
+        uploadSpeedStakeRate = newUploadSpeedStakeRate;
+        downloadSpeedStakeRate = newDownloadSpeedStakeRate;
         
         emit StakeParametersUpdated(
             newBaseStakeAmount,
             newCpuStakeRate,
             newGpuStakeRate,
             newMemoryStakeRate,
-            newDiskStakeRate
+            newDiskStakeRate,
+            newUploadSpeedStakeRate,
+            newDownloadSpeedStakeRate
         );
     }
 
@@ -161,20 +175,26 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      * @param gpuCores Number of GPU cores
      * @param memoryMB Memory in MB
      * @param diskGB Storage in GB
+     * @param uploadSpeed Upload speed in Mbps
+     * @param downloadSpeed Download speed in Mbps
      */
     function calculateRequiredStake(
         uint256 cpuCores, 
         uint256 gpuCores, 
         uint256 memoryMB, 
-        uint256 diskGB
+        uint256 diskGB,
+        uint256 uploadSpeed,
+        uint256 downloadSpeed
     ) public view returns (uint256) {
         // Calculate stake using configurable rates
         uint256 cpuStake = cpuCores * cpuStakeRate;
         uint256 gpuStake = gpuCores * gpuStakeRate;
         uint256 memoryStake = (memoryMB * memoryStakeRate) / 1024; // Convert MB to GB
         uint256 diskStake = diskGB * diskStakeRate;
+        uint256 uploadSpeedStake = uploadSpeed * uploadSpeedStakeRate;
+        uint256 downloadSpeedStake = downloadSpeed * downloadSpeedStakeRate;
         
-        uint256 resourceStake = cpuStake + gpuStake + memoryStake + diskStake;
+        uint256 resourceStake = cpuStake + gpuStake + memoryStake + diskStake + uploadSpeedStake + downloadSpeedStake;
         return baseStakeAmount + resourceStake;
     }
 
@@ -270,7 +290,9 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             cpuCores,
             gpuCores,
             memoryMB,
-            diskGB
+            diskGB,
+            uploadSpeed,
+            downloadSpeed
         );
         
         // Transfer stake from provider to contract
@@ -325,6 +347,8 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 diskGB,
         uint256 publicIp,
         uint256 overlayIp,
+        uint256 uploadSpeed,
+        uint256 downloadSpeed,
         string memory metadata
     ) external {
         require(providers[providerId].registered, "Provider not registered");
@@ -340,7 +364,9 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             cpuCores,
             gpuCores, 
             memoryMB,
-            diskGB
+            diskGB,
+            uploadSpeed,
+            downloadSpeed
         );
         uint256 currentStake = machine.stakeAmount;
         
