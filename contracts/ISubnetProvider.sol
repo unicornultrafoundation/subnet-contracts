@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 interface ISubnetProvider {
     function isMachineActive(uint256 providerId, uint256 machineId) external view returns (bool);
     function validateMachineRequirements(
+        uint256 machineType,
         uint256 providerId,
         uint256 machineId,
         uint256 minCpuCores,

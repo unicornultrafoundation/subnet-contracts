@@ -630,6 +630,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
     
     /**
      * @dev Validate if a machine meets minimum requirements
+     * @param machineType Type of the machine
      * @param providerId ID of the provider
      * @param machineId ID of the machine
      * @param minCpuCores Minimum CPU cores required
@@ -639,6 +640,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      * @return True if machine meets requirements
      */
     function validateMachineRequirements(
+        uint256 machineType,
         uint256 providerId,
         uint256 machineId,
         uint256 minCpuCores,
@@ -662,7 +664,8 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
                machine.diskGB >= minDiskGB &&
                machine.gpuCores >= minGpuCores &&
                machine.uploadSpeed >= minUploadSpeed &&
-               machine.downloadSpeed >= minDownloadSpeed;
+               machine.downloadSpeed >= minDownloadSpeed && 
+               machine.machineType == machineType;
     }
     
     /**

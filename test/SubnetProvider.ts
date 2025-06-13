@@ -412,6 +412,7 @@ describe("SubnetProvider", function () {
         it("should validate machine requirements correctly", async function() {
             // Should pass with equal requirements
             expect(await subnetProvider.validateMachineRequirements(
+                1,
                 providerId,
                 machineId,
                 4, // minCpuCores
@@ -424,6 +425,7 @@ describe("SubnetProvider", function () {
             
             // Should pass with lower requirements
             expect(await subnetProvider.validateMachineRequirements(
+                1,
                 providerId,
                 machineId,
                 2, // minCpuCores
@@ -436,6 +438,7 @@ describe("SubnetProvider", function () {
             
             // Should fail with higher requirements
             expect(await subnetProvider.validateMachineRequirements(
+                1,
                 providerId,
                 machineId,
                 8, // minCpuCores (too high)

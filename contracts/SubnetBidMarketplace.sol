@@ -16,6 +16,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     enum BidStatus { Pending, Accepted, Cancelled }
 
     struct Order {
+        uint256 machineType;
         address owner;
         OrderStatus status;
         uint256 createdAt;
@@ -134,6 +135,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
      * @param specs Resource specifications.
      */
     function createOrder(
+        uint256 machineType,
         uint256 duration,
         uint256 minBidPrice,
         uint256 maxBidPrice,
@@ -153,6 +155,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
 
         orderCount++;
         orders[orderCount] = Order({
+            machineType: machineType,
             owner: msg.sender,
             status: OrderStatus.Open,
             createdAt: block.timestamp,
@@ -209,6 +212,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
 
         require(
             providerContract.validateMachineRequirements(
+                order.machineType,
                 providerId,
                 machineId,
                 order.cpuCores,
