@@ -57,6 +57,13 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 unlockTime;  // When stake can be withdrawn after removal
         bool withdrawalProcessed; // Whether withdrawal has been processed
         string metadata;     // Additional metadata for the machine
+        // uint256 pricePerSecond; // REMOVE this line
+        // Add price per resource type (per second)
+        uint256 cpuPricePerSecond;
+        uint256 gpuPricePerSecond;
+        uint256 memoryPricePerSecond;
+        uint256 diskPricePerSecond;
+        // You can add more if needed (e.g., gpuMemoryPricePerSecond)
     }
 
     // State variables
@@ -95,6 +102,14 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 diskRate,
         uint256 uploadSpeedRate,
         uint256 downloadSpeedRate
+    );
+    event MachineResourcePriceUpdated(
+        uint256 indexed providerId,
+        uint256 indexed machineId,
+        uint256 cpuPricePerSecond,
+        uint256 gpuPricePerSecond,
+        uint256 memoryPricePerSecond,
+        uint256 diskPricePerSecond
     );
 
     /**
@@ -279,7 +294,11 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 overlayIp,
         uint256 uploadSpeed,
         uint256 downloadSpeed,
-        string memory metadata
+        string memory metadata,
+        uint256 cpuPricePerSecond,
+        uint256 gpuPricePerSecond,
+        uint256 memoryPricePerSecond,
+        uint256 diskPricePerSecond
     ) external returns (uint256) {
         require(providers[providerId].registered, "Provider not registered");
         require(!providers[providerId].isSlashed, "Provider is slashed");
@@ -321,7 +340,11 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             withdrawalProcessed: false,
             metadata: metadata,
             uploadSpeed: uploadSpeed,
-            downloadSpeed: downloadSpeed
+            downloadSpeed: downloadSpeed,
+            cpuPricePerSecond: cpuPricePerSecond,
+            gpuPricePerSecond: gpuPricePerSecond,
+            memoryPricePerSecond: memoryPricePerSecond,
+            diskPricePerSecond: diskPricePerSecond
         });
 
         providerMachines[providerId].push(machine);
@@ -349,7 +372,11 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 overlayIp,
         uint256 uploadSpeed,
         uint256 downloadSpeed,
-        string memory metadata
+        string memory metadata,
+        uint256 cpuPricePerSecond,
+        uint256 gpuPricePerSecond,
+        uint256 memoryPricePerSecond,
+        uint256 diskPricePerSecond
     ) external {
         require(providers[providerId].registered, "Provider not registered");
         require(!providers[providerId].isSlashed, "Provider is slashed");
@@ -391,6 +418,10 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         machine.stakeAmount = newRequiredStake;
         machine.uploadSpeed = uploadSpeed;
         machine.downloadSpeed = downloadSpeed;
+        machine.cpuPricePerSecond = cpuPricePerSecond;
+        machine.gpuPricePerSecond = gpuPricePerSecond;
+        machine.memoryPricePerSecond = memoryPricePerSecond;
+        machine.diskPricePerSecond = diskPricePerSecond;
         
         provider.updatedAt = block.timestamp;
 
@@ -684,6 +715,53 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      */
     function getProviderOwner(uint256 providerId) external view returns (address) {
         return ownerOf(providerId);
+    }
+
+    /**
+     * @dev Update price for a machine per resource (provider owner or operator only)
+     */
+    function setMachineResourcePrice(
+        uint256 providerId,
+        uint256 machineId,
+        uint256 cpuPricePerSecond,
+        uint256 gpuPricePerSecond,
+        uint256 memoryPricePerSecond,
+        uint256 diskPricePerSecond
+    ) external onlyProviderOperatorOrOwner(providerId) {
+        require(machineId < providers[providerId].machineCount, "Invalid machine ID");
+        Machine storage machine = providerMachines[providerId][machineId];
+        machine.cpuPricePerSecond = cpuPricePerSecond;
+        machine.gpuPricePerSecond = gpuPricePerSecond;
+        machine.memoryPricePerSecond = memoryPricePerSecond;
+        machine.diskPricePerSecond = diskPricePerSecond;
+        machine.updatedAt = block.timestamp;
+        emit MachineResourcePriceUpdated(
+            providerId,
+            machineId,
+            cpuPricePerSecond,
+            gpuPricePerSecond,
+            memoryPricePerSecond,
+            diskPricePerSecond
+        );
+    }
+
+    /**
+     * @dev Get price for a machine per resource
+     */
+    function getMachineResourcePrice(uint256 providerId, uint256 machineId) external view returns (
+        uint256 cpuPricePerSecond,
+        uint256 gpuPricePerSecond,
+        uint256 memoryPricePerSecond,
+        uint256 diskPricePerSecond
+    ) {
+        require(machineId < providers[providerId].machineCount, "Invalid machine ID");
+        Machine storage machine = providerMachines[providerId][machineId];
+        return (
+            machine.cpuPricePerSecond,
+            machine.gpuPricePerSecond,
+            machine.memoryPricePerSecond,
+            machine.diskPricePerSecond
+        );
     }
 }
 

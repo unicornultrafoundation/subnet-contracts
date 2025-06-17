@@ -2,6 +2,12 @@
 pragma solidity ^0.8.0;
 
 interface ISubnetProvider {
+    function getMachineResourcePrice(uint256 providerId, uint256 machineId) external view returns (
+        uint256 cpuPricePerSecond,
+        uint256 gpuPricePerSecond,
+        uint256 memoryPricePerSecond,
+        uint256 diskPricePerSecond
+    );
     function isMachineActive(uint256 providerId, uint256 machineId) external view returns (bool);
     function validateMachineRequirements(
         uint256 machineType,

@@ -69,6 +69,20 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     address public platformWallet; // Address where fees will be sent
     uint256 public totalAccumulatedFees; // Total fees collected by platform
 
+    // Struct for tracking resource usage per machine
+    struct MachineResourceUsage {
+        uint256 cpuCores;
+        uint256 gpuCores;
+        uint256 gpuMemory;
+        uint256 memoryMB;
+        uint256 diskGB;
+        uint256 uploadMbps;
+        uint256 downloadMbps;
+    }
+
+    // Mapping: providerId => machineId => resource usage
+    mapping(uint256 => mapping(uint256 => MachineResourceUsage)) public machineResourceUsed;
+
     // Events
     event OrderCreated(uint256 indexed orderId, address owner, uint256 duration);
     event BidSubmitted(uint256 indexed orderId, address indexed provider, uint256 price, uint256 providerId, uint256 machineId);
@@ -210,19 +224,21 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
             "Not authorized to bid for this provider"
         );
 
+        // Check available resource before allowing bid
+        MachineResourceUsage storage usage = machineResourceUsed[providerId][machineId];
         require(
             providerContract.validateMachineRequirements(
                 order.machineType,
                 providerId,
                 machineId,
-                order.cpuCores,
-                order.memoryMB,
-                order.diskGB,
-                order.gpuCores,
-                order.uploadMbps,
-                order.downloadMbps
+                usage.cpuCores + order.cpuCores,
+                usage.memoryMB + order.memoryMB,
+                usage.diskGB + order.diskGB,
+                usage.gpuCores + order.gpuCores,
+                order.uploadMbps, // do not sum uploadMbps
+                order.downloadMbps // do not sum downloadMbps
             ),
-            "Machine does not meet requirements"
+            "Machine does not meet requirements (with current usage)"
         );
 
         orderBids[orderId].push(Bid({
@@ -273,6 +289,15 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         order.expiredAt = block.timestamp + order.duration;
         order.lastPaidAt = block.timestamp;
 
+        // Accumulate resource usage for the machine (exclude upload/download Mbps)
+        MachineResourceUsage storage usage = machineResourceUsed[bid.providerId][bid.machineId];
+        usage.cpuCores += order.cpuCores;
+        usage.gpuCores += order.gpuCores;
+        usage.gpuMemory += order.gpuMemory;
+        usage.memoryMB += order.memoryMB;
+        usage.diskGB += order.diskGB;
+        // Do not accumulate uploadMbps or downloadMbps
+
         emit BidAccepted(orderId, bid.provider, bid.pricePerSecond);
     }
 
@@ -316,8 +341,9 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
      * @dev Extend the duration of an order.
      * Only the order owner can extend, and only if not expired.
      * @param orderId The order ID.
+     * @param amount The amount to extend the order.
      */
-    function extend(uint256 orderId) external {
+    function extend(uint256 orderId, uint256 amount) external {
         Order storage order = orders[orderId];
         require(order.owner == msg.sender, "Only order owner can extend");
         require(order.status == OrderStatus.Matched, "Order not matched");
@@ -326,14 +352,14 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         uint256 pricePerSecond = order.acceptedBidPricePerSecond;
         require(pricePerSecond > 0, "Price not set");
 
-        uint256 totalCost = order.duration * pricePerSecond;
-        
-        IERC20(order.paymentToken).safeTransferFrom(msg.sender, address(this), totalCost);
+        uint256 duration =  amount / pricePerSecond;
+
+        IERC20(order.paymentToken).safeTransferFrom(msg.sender, address(this), amount);
 
         // Update expiration
-        order.expiredAt += order.duration;
+        order.expiredAt += duration;
 
-        emit OrderExtended(orderId, order.duration, order.expiredAt);
+        emit OrderExtended(orderId, duration, order.expiredAt);
     }
 
 
@@ -494,5 +520,187 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
      */
     function calculateFee(uint256 amount) internal view returns (uint256) {
         return (amount * platformFeePercentage) / 10000;
+    }
+
+    /**
+     * @dev Release resource of the accepted machine for an order.
+     * Can be called when order is expired or closed.
+     * @param orderId The order ID.
+     */
+    function releaseOrderResource(uint256 orderId) external {
+        Order storage order = orders[orderId];
+        require(
+            order.status == OrderStatus.Closed || 
+            (order.status == OrderStatus.Matched && block.timestamp >= order.expiredAt),
+            "Order not expired or closed"
+        );
+        require(order.acceptedProviderId != 0 && order.acceptedMachineId != 0, "No accepted machine");
+
+        // Decrement resource usage for all resource types except upload/download Mbps
+        MachineResourceUsage storage usage = machineResourceUsed[order.acceptedProviderId][order.acceptedMachineId];
+        if (usage.cpuCores >= order.cpuCores) usage.cpuCores -= order.cpuCores; else usage.cpuCores = 0;
+        if (usage.gpuCores >= order.gpuCores) usage.gpuCores -= order.gpuCores; else usage.gpuCores = 0;
+        if (usage.gpuMemory >= order.gpuMemory) usage.gpuMemory -= order.gpuMemory; else usage.gpuMemory = 0;
+        if (usage.memoryMB >= order.memoryMB) usage.memoryMB -= order.memoryMB; else usage.memoryMB = 0;
+        if (usage.diskGB >= order.diskGB) usage.diskGB -= order.diskGB; else usage.diskGB = 0;
+    }
+
+    /**
+     * @dev Get used resource for a machine
+     * @param providerId The provider NFT ID.
+     * @param machineId The machine ID.
+     * @return cpuCores Number of CPU cores used
+     * @return gpuCores Number of GPU cores used
+     * @return gpuMemory Amount of GPU memory used
+     * @return memoryMB Amount of RAM used in MB
+     * @return diskGB Amount of disk used in GB
+     */
+    function getUsedResource(uint256 providerId, uint256 machineId) external view returns (
+        uint256 cpuCores,
+        uint256 gpuCores,
+        uint256 gpuMemory,
+        uint256 memoryMB,
+        uint256 diskGB
+    ) {
+        MachineResourceUsage storage usage = machineResourceUsed[providerId][machineId];
+        return (
+            usage.cpuCores,
+            usage.gpuCores,
+            usage.gpuMemory,
+            usage.memoryMB,
+            usage.diskGB
+        );
+    }
+
+    /**
+     * @dev Renter creates an order and directly selects a machine (auto-accept).
+     * @param machineType Type of machine.
+     * @param duration Duration (in seconds) for the order.
+     * @param providerId Provider NFT ID.
+     * @param machineId Machine ID from the provider.
+     * @param region Region ID.
+     * @param cpuCores Number of CPU cores.
+     * @param gpuCores Number of GPU cores.
+     * @param gpuMemory GPU memory in MB.
+     * @param memoryMB RAM in MB.
+     * @param diskGB Storage in GB.
+     * @param uploadMbps Upload speed in Mbps.
+     * @param downloadMbps Download speed in Mbps.
+     * @param specs Resource specifications.
+     */
+    function createOrderAndAccept(
+        uint256 machineType,
+        uint256 duration,
+        uint256 providerId,
+        uint256 machineId,
+        uint256 region,
+        uint256 cpuCores,
+        uint256 gpuCores,
+        uint256 gpuMemory,
+        uint256 memoryMB,
+        uint256 diskGB,
+        uint256 uploadMbps,
+        uint256 downloadMbps,
+        string memory specs
+    ) external returns (uint256) {
+        require(paymentToken != address(0), "Payment token not set");
+        require(duration > 0, "Duration must be positive");
+
+        // Validate machine and requirements
+        ISubnetProvider providerContract = ISubnetProvider(subnetProviderContract);
+        require(providerContract.isMachineActive(providerId, machineId), "Machine not active");
+
+        // Calculate used resource (current usage + requested)
+        MachineResourceUsage storage usage = machineResourceUsed[providerId][machineId];
+        uint256 totalCpu = usage.cpuCores + cpuCores;
+        uint256 totalGpu = usage.gpuCores + gpuCores;
+        uint256 totalMemory = usage.memoryMB + memoryMB;
+        uint256 totalDisk = usage.diskGB + diskGB;
+
+        require(
+            providerContract.validateMachineRequirements(
+                machineType,
+                providerId,
+                machineId,
+                totalCpu,
+                totalMemory,
+                totalDisk,
+                totalGpu,
+                uploadMbps,
+                downloadMbps
+            ),
+            "Machine does not meet requirements"
+        );
+
+        // Get price per resource from provider
+        (
+            uint256 cpuPricePerSecond,
+            uint256 gpuPricePerSecond,
+            uint256 memoryPricePerSecond,
+            uint256 diskPricePerSecond
+        ) = providerContract.getMachineResourcePrice(providerId, machineId);
+
+        // Calculate total price per second
+        uint256 pricePerSecond =
+            cpuPricePerSecond * cpuCores +
+            gpuPricePerSecond * gpuCores +
+            memoryPricePerSecond * memoryMB +
+            diskPricePerSecond * diskGB;
+
+        require(pricePerSecond > 0, "Invalid price");
+
+        // Create order
+        orderCount++;
+        orders[orderCount] = Order({
+            machineType: machineType,
+            owner: msg.sender,
+            status: OrderStatus.Matched,
+            createdAt: block.timestamp,
+            duration: duration,
+            minBidPrice: pricePerSecond,
+            maxBidPrice: pricePerSecond,
+            acceptedBidPricePerSecond: pricePerSecond,
+            parentOrderId: 0,
+            paymentToken: paymentToken,
+            specs: specs,
+            acceptedProviderId: providerId,
+            acceptedMachineId: machineId,
+            startAt: block.timestamp,
+            expiredAt: block.timestamp + duration,
+            lastPaidAt: block.timestamp,
+            cpuCores: cpuCores,
+            gpuCores: gpuCores,
+            gpuMemory: gpuMemory,
+            memoryMB: memoryMB,
+            diskGB: diskGB,
+            uploadMbps: uploadMbps,
+            downloadMbps: downloadMbps,
+            region: region
+        });
+
+        // Add a Bid for this order (auto-accepted)
+        orderBids[orderCount].push(Bid({
+            provider: IERC721(subnetProviderContract).ownerOf(providerId),
+            pricePerSecond: pricePerSecond,
+            status: BidStatus.Accepted,
+            createdAt: block.timestamp,
+            providerId: providerId,
+            machineId: machineId
+        }));
+
+        // Accumulate resource usage for the machine (exclude upload/download Mbps)
+        usage.cpuCores += cpuCores;
+        usage.gpuCores += gpuCores;
+        usage.gpuMemory += gpuMemory;
+        usage.memoryMB += memoryMB;
+        usage.diskGB += diskGB;
+
+        // Payment logic: renter pays (pricePerSecond * duration) to contract
+        uint256 totalCost = pricePerSecond * duration;
+        IERC20(paymentToken).safeTransferFrom(msg.sender, address(this), totalCost);
+
+        emit OrderCreated(orderCount, msg.sender, duration);
+        emit BidAccepted(orderCount, msg.sender, pricePerSecond);
+        return orderCount;
     }
 }
