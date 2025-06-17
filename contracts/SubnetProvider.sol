@@ -22,7 +22,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
     struct Provider {
         address operator; // Address of the provider's operator
         bool registered;
-        uint256 reputation;
+        uint256 reputation; // Reputation score (0-100)
         uint256 machineCount;
         uint256 createdAt;
         uint256 updatedAt;
@@ -33,6 +33,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         string metadata;       // Additional metadata URI
         bool isSlashed;         // Whether the provider has been slashed
         bool isActive;          // Whether the provider is currently active
+        bool verified;          // Verification status (renamed from isProviderVerified)
     }
 
     struct Machine {
@@ -111,6 +112,8 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 memoryPricePerSecond,
         uint256 diskPricePerSecond
     );
+    event ProviderVerified(uint256 indexed providerId, bool verified);
+    event ProviderReputationUpdated(uint256 indexed providerId, uint256 newReputation);
 
     /**
      * @dev Initialize the contract
@@ -230,7 +233,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             operator: operator,
             registered: true,
             metadata: metadata,
-            reputation: 0,
+            reputation: 100, // Default max reputation
             machineCount: 0,
             createdAt: block.timestamp,
             updatedAt: block.timestamp,
@@ -239,8 +242,8 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             slashedAmount: 0,
             tokenId: tokenId,
             isSlashed: false,
-            isActive: true
-            
+            isActive: true,
+            verified: false
         });
 
         return tokenId;
@@ -762,6 +765,36 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             machine.memoryPricePerSecond,
             machine.diskPricePerSecond
         );
+    }
+
+    /**
+     * @dev Set provider verification status (admin only)
+     * @param providerId Provider ID
+     * @param verified_ Verification status
+     */
+    function setProviderVerified(uint256 providerId, bool verified_) external onlyOwner {
+        require(providers[providerId].registered, "Provider not registered");
+        providers[providerId].verified = verified_;
+        emit ProviderVerified(providerId, verified_);
+    }
+
+    function isVerified(uint256 providerId) external view returns (bool) {
+        return providers[providerId].verified;
+    }
+
+    /**
+     * @dev Update provider reputation (admin only or via reputation system)
+     * @param providerId Provider ID
+     * @param newReputation New reputation score
+     */
+    function setProviderReputation(uint256 providerId, uint256 newReputation) external onlyOwner {
+        require(providers[providerId].registered, "Provider not registered");
+        providers[providerId].reputation = newReputation;
+        emit ProviderReputationUpdated(providerId, newReputation);
+    }
+
+    function getProviderReputation(uint256 providerId) external view returns (uint256) {
+        return providers[providerId].reputation;
     }
 }
 
