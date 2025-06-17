@@ -85,8 +85,8 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
 
     // Events
     event OrderCreated(uint256 indexed orderId, address owner, uint256 duration);
-    event BidSubmitted(uint256 indexed orderId, address indexed provider, uint256 price, uint256 providerId, uint256 machineId);
-    event BidAccepted(uint256 indexed orderId, address indexed provider, uint256 price);
+    event BidSubmitted(uint256 indexed orderId, address indexed provider, uint256 price, uint256 providerId, uint256 machineId, uint256 bidIndex);
+    event BidAccepted(uint256 indexed orderId, address indexed provider, uint256 price, uint256 bidIndex);
     event OrderCancelled(uint256 indexed orderId, address owner);
     event BidCancelled(uint256 indexed orderId, address indexed provider, uint256 bidIndex);
     event OrderExtended(uint256 indexed orderId, uint256 additionalDuration, uint256 newExpiry);
@@ -249,7 +249,8 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
             providerId: providerId,
             machineId: machineId
         }));
-        emit BidSubmitted(orderId, msg.sender, pricePerSecond, providerId, machineId);
+        uint256 bidIndex = orderBids[orderId].length - 1;
+        emit BidSubmitted(orderId, msg.sender, pricePerSecond, providerId, machineId, bidIndex);
     }
 
     /**
@@ -298,7 +299,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         usage.diskGB += order.diskGB;
         // Do not accumulate uploadMbps or downloadMbps
 
-        emit BidAccepted(orderId, bid.provider, bid.pricePerSecond);
+        emit BidAccepted(orderId, bid.provider, bid.pricePerSecond, bidIndex);
     }
 
     /**
@@ -703,7 +704,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         IERC20(paymentToken).safeTransferFrom(msg.sender, address(this), amount);
 
         emit OrderCreated(orderCount, msg.sender, duration);
-        emit BidAccepted(orderCount, msg.sender, pricePerSecond);
+        emit BidAccepted(orderCount, msg.sender, pricePerSecond, 0);
         return orderCount;
     }
 }
