@@ -62,7 +62,11 @@ describe("SubnetBidMarketplace", function () {
             987654321, // overlayIp
             100, // uploadSpeed
             1000, // downloadSpeed
-            "machine-metadata"
+            "machine-metadata",
+            1, // cpuPricePerSecond
+            2, // gpuPricePerSecond
+            3, // memoryPricePerSecond
+            4  // diskPricePerSecond
         );
         
         const machineReceipt = await machineTx.wait();
@@ -309,7 +313,7 @@ describe("SubnetBidMarketplace", function () {
                     providerId1,
                     machineId1
                 )
-            ).to.be.revertedWith("Machine does not meet requirements");
+            ).to.be.revertedWith("Machine does not meet requirements (with current usage)");
         });
 
         it("should reject bids outside the price range", async function() {
@@ -521,18 +525,23 @@ describe("SubnetBidMarketplace", function () {
         it("should allow order owner to extend duration", async function() {
             const initialBalance = await paymentToken.balanceOf(client1.address);
             const initialExpiry = (await marketplace.orders(orderId)).expiredAt;
-            
-            await marketplace.connect(client1).extend(orderId);
-            
+
+            // Calculate amount to extend (same as original duration)
+            const order = await marketplace.orders(orderId);
+            const pricePerSecond = order.acceptedBidPricePerSecond;
+            const duration = order.duration;
+            const amount = pricePerSecond * duration;
+
+            await marketplace.connect(client1).extend(orderId, amount);
+
             const finalOrder = await marketplace.orders(orderId);
-            
-            // Expiry should be increased by original duration
-            expect(finalOrder.expiredAt).to.be.gt(initialExpiry);
-            
+
+            // Expiry should be increased by duration
+            expect(finalOrder.expiredAt).to.equal(initialExpiry + duration);
+
             // Payment should have been made
             const finalBalance = await paymentToken.balanceOf(client1.address);
-            const expectedCost = ethers.parseEther("0.5") * 7n * 24n * 60n * 60n; // price * original duration
-            expect(initialBalance - finalBalance).to.equal(expectedCost);
+            expect(initialBalance - finalBalance).to.equal(amount);
         });
 
         it("should allow order owner to close order early with refund", async function() {
@@ -552,6 +561,81 @@ describe("SubnetBidMarketplace", function () {
             await expect(
                 marketplace.connect(client2).closeOrder(orderId, "unauthorized")
             ).to.be.revertedWith("Not authorized");
+        });
+    });
+
+    describe("Direct Order Creation and Accept (createOrderAndAccept)", function () {
+        it("should create and match order with upfront amount", async function () {
+            // Set up: get pricePerSecond for the machine
+            const [cpuPrice, gpuPrice, memPrice, diskPrice] = await provider.getMachineResourcePrice(providerId1, machineId1);
+            // Use same specs as machine
+            const cpuCores = 4;
+            const gpuCores = 2;
+            const gpuMemory = 16000;
+            const memoryMB = 32 * 1024;
+            const diskGB = 1000;
+            const uploadMbps = 100;
+            const downloadMbps = 1000;
+            const region = 2;
+            const machineType = 1;
+
+            // Calculate pricePerSecond and upfront amount for 1 week
+            const pricePerSecond =
+                cpuPrice * BigInt(cpuCores) +
+                gpuPrice * BigInt(gpuCores) +
+                memPrice * BigInt(memoryMB) +
+                diskPrice * BigInt(diskGB);
+            const duration = 7n * 24n * 60n * 60n; // 1 week
+            const amount = pricePerSecond * duration;
+
+            const initialBalance = await paymentToken.balanceOf(client1.address);
+
+            // Call createOrderAndAccept
+            const tx = await marketplace.connect(client1).createOrderAndAccept(
+                machineType,
+                amount,
+                providerId1,
+                machineId1,
+                region,
+                cpuCores,
+                gpuCores,
+                gpuMemory,
+                memoryMB,
+                diskGB,
+                uploadMbps,
+                downloadMbps,
+                "Direct order specs"
+            );
+            const receipt = await tx.wait();
+            expect(receipt?.status).to.equal(1);
+
+            // The new order should be orderCount
+            const orderId = await marketplace.orderCount();
+            const order = await marketplace.orders(orderId);
+
+            expect(order.owner).to.equal(client1.address);
+            expect(order.status).to.equal(1); // Matched
+            expect(order.acceptedProviderId).to.equal(providerId1);
+            expect(order.acceptedMachineId).to.equal(machineId1);
+            expect(order.cpuCores).to.equal(cpuCores);
+            expect(order.gpuCores).to.equal(gpuCores);
+            expect(order.memoryMB).to.equal(memoryMB);
+            expect(order.diskGB).to.equal(diskGB);
+            expect(order.duration).to.equal(duration);
+            expect(order.minBidPrice).to.equal(pricePerSecond);
+            expect(order.maxBidPrice).to.equal(pricePerSecond);
+
+            // Payment should be deducted
+            const finalBalance = await paymentToken.balanceOf(client1.address);
+            expect(initialBalance - finalBalance).to.equal(amount);
+
+            // There should be an auto-accepted bid
+            const bids = await marketplace.getBids(orderId);
+            expect(bids.length).to.equal(1);
+            expect(bids[0].status).to.equal(1); // Accepted
+            expect(bids[0].providerId).to.equal(providerId1);
+            expect(bids[0].machineId).to.equal(machineId1);
+            expect(bids[0].pricePerSecond).to.equal(pricePerSecond);
         });
     });
 

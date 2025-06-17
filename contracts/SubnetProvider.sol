@@ -789,6 +789,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      */
     function setProviderReputation(uint256 providerId, uint256 newReputation) external onlyOwner {
         require(providers[providerId].registered, "Provider not registered");
+        require(newReputation <= 100, "Reputation cannot exceed 100");
         providers[providerId].reputation = newReputation;
         emit ProviderReputationUpdated(providerId, newReputation);
     }

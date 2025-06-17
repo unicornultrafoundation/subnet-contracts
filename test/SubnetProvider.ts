@@ -156,7 +156,11 @@ describe("SubnetProvider", function () {
                 987654321, // overlayIp
                 100, // uploadSpeed
                 1000, // downloadSpeed
-                "machine-metadata"
+                "machine-metadata",
+                1, // cpuPricePerSecond
+                2, // gpuPricePerSecond
+                3, // memoryPricePerSecond
+                4  // diskPricePerSecond
             );
             
             const receipt = await tx.wait();
@@ -202,7 +206,11 @@ describe("SubnetProvider", function () {
                     987654321, // overlayIp
                     100, // uploadSpeed
                     1000, // downloadSpeed
-                    "machine-metadata"
+                    "machine-metadata",
+                    1, // cpuPricePerSecond
+                    2, // gpuPricePerSecond
+                    3, // memoryPricePerSecond
+                    4  // diskPricePerSecond
                 )
             ).to.be.revertedWith("Only token owner can add machine");
         });
@@ -223,7 +231,11 @@ describe("SubnetProvider", function () {
                 987654321, // overlayIp
                 100, // uploadSpeed
                 1000, // downloadSpeed
-                "machine-metadata"
+                "machine-metadata",
+                1, // cpuPricePerSecond
+                2, // gpuPricePerSecond
+                3, // memoryPricePerSecond
+                4  // diskPricePerSecond
             );
             
             // Get initial stake
@@ -244,7 +256,11 @@ describe("SubnetProvider", function () {
                 987654321, // overlayIp
                 200, // uploadSpeed (increased)
                 2000, // downloadSpeed (increased)
-                "updated-metadata"
+                "updated-metadata",
+                10, // cpuPricePerSecond
+                20, // gpuPricePerSecond
+                30, // memoryPricePerSecond
+                40  // diskPricePerSecond
             );
             
             // Check machine was updated correctly
@@ -289,7 +305,11 @@ describe("SubnetProvider", function () {
                 987654321, // overlayIp
                 100, // uploadSpeed
                 1000, // downloadSpeed
-                "machine-metadata"
+                "machine-metadata",
+                1, // cpuPricePerSecond
+                2, // gpuPricePerSecond
+                3, // memoryPricePerSecond
+                4  // diskPricePerSecond
             );
             
             // Get stake amount
@@ -351,7 +371,7 @@ describe("SubnetProvider", function () {
                 subnetProvider.claimWithdrawal(providerId, machineId)
             ).to.be.revertedWith("Still locked");
             
-            // Advance time by lock period
+            // Advance time to simulate lock period expiration
             const lockPeriod = await subnetProvider.lockPeriod();
             await ethers.provider.send("evm_increaseTime", [Number(lockPeriod)]);
             await ethers.provider.send("evm_mine", []); // Mine a new block
@@ -394,7 +414,11 @@ describe("SubnetProvider", function () {
                 987654321, // overlayIp
                 100, // uploadSpeed
                 1000, // downloadSpeed
-                "machine-metadata"
+                "machine-metadata",
+                1, // cpuPricePerSecond
+                2, // gpuPricePerSecond
+                3, // memoryPricePerSecond
+                4  // diskPricePerSecond
             );
         });
         
@@ -448,6 +472,58 @@ describe("SubnetProvider", function () {
                 100, // minUploadSpeed
                 1000 // minDownloadSpeed
             )).to.be.false;
+        });
+    });
+
+    describe("Provider Verification and Reputation", function() {
+        let providerId: bigint;
+
+        beforeEach(async function() {
+            const tx = await subnetProvider.registerProvider(operator.address, "provider-metadata");
+            const receipt = await tx.wait();
+            providerId = await getProviderIdFromReceipt(receipt!);
+        });
+
+        it("should allow owner to verify and unverify provider", async function() {
+            // Default should be false
+            let provider = await subnetProvider.getProvider(providerId);
+            expect(provider.verified).to.be.false;
+            expect(await subnetProvider.isVerified(providerId)).to.be.false;
+
+            // Set verified
+            await subnetProvider.setProviderVerified(providerId, true);
+            provider = await subnetProvider.getProvider(providerId);
+            expect(provider.verified).to.be.true;
+            expect(await subnetProvider.isVerified(providerId)).to.be.true;
+
+            // Unverify
+            await subnetProvider.setProviderVerified(providerId, false);
+            provider = await subnetProvider.getProvider(providerId);
+            expect(provider.verified).to.be.false;
+            expect(await subnetProvider.isVerified(providerId)).to.be.false;
+        });
+
+        it("should allow owner to set and get provider reputation (max 100)", async function() {
+            // Default should be 100
+            let provider = await subnetProvider.getProvider(providerId);
+            expect(provider.reputation).to.equal(100);
+            expect(await subnetProvider.getProviderReputation(providerId)).to.equal(100);
+
+            // Set reputation to 80
+            await subnetProvider.setProviderReputation(providerId, 80);
+            provider = await subnetProvider.getProvider(providerId);
+            expect(provider.reputation).to.equal(80);
+            expect(await subnetProvider.getProviderReputation(providerId)).to.equal(80);
+
+            // Set reputation to 0
+            await subnetProvider.setProviderReputation(providerId, 0);
+            provider = await subnetProvider.getProvider(providerId);
+            expect(provider.reputation).to.equal(0);
+
+            // Should not allow > 100
+            await expect(
+                subnetProvider.setProviderReputation(providerId, 101)
+            ).to.be.revertedWith("Reputation cannot exceed 100");
         });
     });
 
