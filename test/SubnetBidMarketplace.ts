@@ -53,13 +53,10 @@ describe("SubnetBidMarketplace", function () {
             1, // machineType
             2, // region
             4, // cpuCores
-            3000, // cpuSpeed
             2, // gpuCores
             16000, // gpuMemory
             32 * 1024, // memoryMB (32GB)
             1000, // diskGB
-            123456789, // publicIp
-            987654321, // overlayIp
             100, // uploadSpeed
             1000, // downloadSpeed
             "machine-metadata",

@@ -42,15 +42,12 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 region;
         // Detailed resource specifications
         uint256 cpuCores;    // Number of CPU cores
-        uint256 cpuSpeed;    // CPU speed in MHz
         uint256 gpuCores;    // GPU cores (0 if no GPU)
         uint256 gpuMemory;   // GPU memory in MB
         uint256 memoryMB;    // RAM in MB
         uint256 diskGB;      // Storage in GB
         uint256 uploadSpeed; // Upload speed in Mbps (optional)
         uint256 downloadSpeed; // Download speed in Mbps (optional)
-        uint256 publicIp;     // Public IP address
-        uint256 overlayIp;    // Overlay network IP address
         uint256 createdAt;
         uint256 updatedAt;
         uint256 stakeAmount; // Amount staked for this machine
@@ -224,7 +221,14 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
     function registerProvider(
         address operator,
         string memory metadata
-    ) external returns (uint256) {        
+    ) external returns (uint256) {
+        return _registerProvider(operator, metadata);
+    }
+
+    function _registerProvider(
+        address operator,
+        string memory metadata
+    ) internal returns (uint256) {
         // Mint NFT for the provider
         uint256 tokenId = _nextTokenId++;
         _mint(msg.sender, tokenId);
@@ -273,13 +277,10 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      * @param machineType Type of virtualization
      * @param region Location information
      * @param cpuCores Number of CPU cores
-     * @param cpuSpeed CPU speed in MHz
      * @param gpuCores Number of GPU cores
      * @param gpuMemory GPU memory in MB
      * @param memoryMB RAM in MB
      * @param diskGB Storage in GB
-     * @param publicIp Public IP address
-     * @param overlayIp Overlay network IP address
      * @param metadata Additional metadata for the machine
      * @return machineId ID of the newly added machine
      */
@@ -288,13 +289,10 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 machineType, 
         uint256 region,
         uint256 cpuCores,
-        uint256 cpuSpeed,
         uint256 gpuCores,
         uint256 gpuMemory,
         uint256 memoryMB,
         uint256 diskGB,
-        uint256 publicIp,
-        uint256 overlayIp,
         uint256 uploadSpeed,
         uint256 downloadSpeed,
         string memory metadata,
@@ -303,6 +301,42 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 memoryPricePerSecond,
         uint256 diskPricePerSecond
     ) external returns (uint256) {
+        return _addMachine(
+            providerId,
+            machineType,
+            region,
+            cpuCores,
+            gpuCores,
+            gpuMemory,
+            memoryMB,
+            diskGB,
+            uploadSpeed,
+            downloadSpeed,
+            metadata,
+            cpuPricePerSecond,
+            gpuPricePerSecond,
+            memoryPricePerSecond,
+            diskPricePerSecond
+        );
+    }
+
+    function _addMachine(
+        uint256 providerId,
+        uint256 machineType, 
+        uint256 region,
+        uint256 cpuCores,
+        uint256 gpuCores,
+        uint256 gpuMemory,
+        uint256 memoryMB,
+        uint256 diskGB,
+        uint256 uploadSpeed,
+        uint256 downloadSpeed,
+        string memory metadata,
+        uint256 cpuPricePerSecond,
+        uint256 gpuPricePerSecond,
+        uint256 memoryPricePerSecond,
+        uint256 diskPricePerSecond
+    ) private returns (uint256) {
         require(providers[providerId].registered, "Provider not registered");
         require(!providers[providerId].isSlashed, "Provider is slashed");
         require(ownerOf(providerId) == msg.sender, "Only token owner can add machine");
@@ -328,13 +362,10 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             machineType: machineType,
             region: region,
             cpuCores: cpuCores,
-            cpuSpeed: cpuSpeed,
             gpuCores: gpuCores,
             gpuMemory: gpuMemory,
             memoryMB: memoryMB,
             diskGB: diskGB,
-            publicIp: publicIp,
-            overlayIp: overlayIp,
             createdAt: block.timestamp,
             updatedAt: block.timestamp,
             stakeAmount: requiredStake,
@@ -366,13 +397,10 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 providerId,
         uint256 machineId,
         uint256 cpuCores,
-        uint256 cpuSpeed,
         uint256 gpuCores,
         uint256 gpuMemory,
         uint256 memoryMB,
         uint256 diskGB,
-        uint256 publicIp,
-        uint256 overlayIp,
         uint256 uploadSpeed,
         uint256 downloadSpeed,
         string memory metadata,
@@ -409,13 +437,10 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         
         // Update machine details
         machine.cpuCores = cpuCores;
-        machine.cpuSpeed = cpuSpeed;
         machine.gpuCores = gpuCores;
         machine.gpuMemory = gpuMemory;
         machine.memoryMB = memoryMB;
         machine.diskGB = diskGB;
-        machine.publicIp = publicIp;
-        machine.overlayIp = overlayIp;
         machine.metadata = metadata;
         machine.updatedAt = block.timestamp;
         machine.stakeAmount = newRequiredStake;
@@ -796,6 +821,65 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
 
     function getProviderReputation(uint256 providerId) external view returns (uint256) {
         return providers[providerId].reputation;
+    }
+
+    /**
+     * @dev Register a new provider and add a machine in a single transaction.
+     * @param operator Operator address for the provider.
+     * @param providerMetadata Metadata for the provider.
+     * @param machineType Type of virtualization.
+     * @param region Location information.
+     * @param cpuCores Number of CPU cores.
+     * @param gpuCores Number of GPU cores.
+     * @param gpuMemory GPU memory in MB.
+     * @param memoryMB RAM in MB.
+     * @param diskGB Storage in GB.
+     * @param uploadSpeed Upload speed in Mbps.
+     * @param downloadSpeed Download speed in Mbps.
+     * @param machineMetadata Additional metadata for the machine.
+     * @param cpuPricePerSecond CPU price per second.
+     * @param gpuPricePerSecond GPU price per second.
+     * @param memoryPricePerSecond Memory price per second.
+     * @param diskPricePerSecond Disk price per second.
+     * @return providerId The token ID of the minted provider NFT.
+     * @return machineId The ID of the newly added machine.
+     */
+    function registerProviderWithMachine(
+        address operator,
+        string memory providerMetadata,
+        uint256 machineType,
+        uint256 region,
+        uint256 cpuCores,
+        uint256 gpuCores,
+        uint256 gpuMemory,
+        uint256 memoryMB,
+        uint256 diskGB,
+        uint256 uploadSpeed,
+        uint256 downloadSpeed,
+        string memory machineMetadata,
+        uint256 cpuPricePerSecond,
+        uint256 gpuPricePerSecond,
+        uint256 memoryPricePerSecond,
+        uint256 diskPricePerSecond
+    ) external returns (uint256 providerId, uint256 machineId) {
+        providerId = _registerProvider(operator, providerMetadata);
+        machineId = _addMachine(
+            providerId,
+            machineType,
+            region,
+            cpuCores,
+            gpuCores,
+            gpuMemory,
+            memoryMB,
+            diskGB,
+            uploadSpeed,
+            downloadSpeed,
+            machineMetadata,
+            cpuPricePerSecond,
+            gpuPricePerSecond,
+            memoryPricePerSecond,
+            diskPricePerSecond
+        );
     }
 }
 

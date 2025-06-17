@@ -147,13 +147,10 @@ describe("SubnetProvider", function () {
                 1, // machineType
                 2, // region
                 4, // cpuCores
-                3000, // cpuSpeed
                 1, // gpuCores
                 8000, // gpuMemory
                 16 * 1024, // memoryMB (16GB)
                 500, // diskGB
-                123456789, // publicIp
-                987654321, // overlayIp
                 100, // uploadSpeed
                 1000, // downloadSpeed
                 "machine-metadata",
@@ -197,13 +194,10 @@ describe("SubnetProvider", function () {
                     1, // machineType
                     2, // region
                     4, // cpuCores
-                    3000, // cpuSpeed
                     1, // gpuCores
                     8000, // gpuMemory
                     16 * 1024, // memoryMB
                     500, // diskGB
-                    123456789, // publicIp
-                    987654321, // overlayIp
                     100, // uploadSpeed
                     1000, // downloadSpeed
                     "machine-metadata",
@@ -222,13 +216,10 @@ describe("SubnetProvider", function () {
                 1, // machineType
                 2, // region
                 4, // cpuCores
-                3000, // cpuSpeed
                 1, // gpuCores
                 8000, // gpuMemory
                 16 * 1024, // memoryMB
                 500, // diskGB
-                123456789, // publicIp
-                987654321, // overlayIp
                 100, // uploadSpeed
                 1000, // downloadSpeed
                 "machine-metadata",
@@ -247,13 +238,10 @@ describe("SubnetProvider", function () {
                 providerId,
                 0, // machineId
                 8, // cpuCores (increased)
-                3500, // cpuSpeed
                 2, // gpuCores (increased)
                 16000, // gpuMemory
                 32 * 1024, // memoryMB (increased)
                 1000, // diskGB (increased)
-                123456789, // publicIp
-                987654321, // overlayIp
                 200, // uploadSpeed (increased)
                 2000, // downloadSpeed (increased)
                 "updated-metadata",
@@ -296,13 +284,10 @@ describe("SubnetProvider", function () {
                 1, // machineType
                 2, // region
                 4, // cpuCores
-                3000, // cpuSpeed
                 1, // gpuCores
                 8000, // gpuMemory
                 16 * 1024, // memoryMB
                 500, // diskGB
-                123456789, // publicIp
-                987654321, // overlayIp
                 100, // uploadSpeed
                 1000, // downloadSpeed
                 "machine-metadata",
@@ -405,13 +390,10 @@ describe("SubnetProvider", function () {
                 1, // machineType
                 2, // region
                 4, // cpuCores
-                3000, // cpuSpeed
                 1, // gpuCores
                 8000, // gpuMemory
                 16 * 1024, // memoryMB
                 500, // diskGB
-                123456789, // publicIp
-                987654321, // overlayIp
                 100, // uploadSpeed
                 1000, // downloadSpeed
                 "machine-metadata",
