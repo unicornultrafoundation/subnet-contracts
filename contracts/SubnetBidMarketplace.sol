@@ -575,7 +575,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     /**
      * @dev Renter creates an order and directly selects a machine (auto-accept).
      * @param machineType Type of machine.
-     * @param duration Duration (in seconds) for the order.
+     * @param amount Amount to pay upfront.
      * @param providerId Provider NFT ID.
      * @param machineId Machine ID from the provider.
      * @param region Region ID.
@@ -590,7 +590,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
      */
     function createOrderAndAccept(
         uint256 machineType,
-        uint256 duration,
+        uint256 amount,
         uint256 providerId,
         uint256 machineId,
         uint256 region,
@@ -604,7 +604,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         string memory specs
     ) external returns (uint256) {
         require(paymentToken != address(0), "Payment token not set");
-        require(duration > 0, "Duration must be positive");
+        require(amount > 0, "Amount must be positive");
 
         // Validate machine and requirements
         ISubnetProvider providerContract = ISubnetProvider(subnetProviderContract);
@@ -648,6 +648,10 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
             diskPricePerSecond * diskGB;
 
         require(pricePerSecond > 0, "Invalid price");
+
+        // Calculate duration from amount and pricePerSecond
+        uint256 duration = amount / pricePerSecond;
+        require(duration > 0, "Amount too low for any duration");
 
         // Create order
         orderCount++;
@@ -695,9 +699,8 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         usage.memoryMB += memoryMB;
         usage.diskGB += diskGB;
 
-        // Payment logic: renter pays (pricePerSecond * duration) to contract
-        uint256 totalCost = pricePerSecond * duration;
-        IERC20(paymentToken).safeTransferFrom(msg.sender, address(this), totalCost);
+        // Payment logic: renter pays 'amount' to contract
+        IERC20(paymentToken).safeTransferFrom(msg.sender, address(this), amount);
 
         emit OrderCreated(orderCount, msg.sender, duration);
         emit BidAccepted(orderCount, msg.sender, pricePerSecond);
