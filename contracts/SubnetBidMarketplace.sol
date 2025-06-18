@@ -85,10 +85,10 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
 
     // Events
     event OrderCreated(uint256 indexed orderId, address owner, uint256 duration);
-    event BidSubmitted(uint256 indexed orderId, address indexed provider, uint256 price, uint256 providerId, uint256 machineId, uint256 bidIndex);
-    event BidAccepted(uint256 indexed orderId, address indexed provider, uint256 price, uint256 bidIndex);
+    event BidSubmitted(uint256 indexed orderId, uint256 indexed providerId, uint256 machineId, uint256 bidIndex);
+    event BidAccepted(uint256 indexed orderId, uint256 indexed providerId, uint256 machineId, uint256 bidIndex, uint256 pricePerSecond);
     event OrderCancelled(uint256 indexed orderId, address owner);
-    event BidCancelled(uint256 indexed orderId, address indexed provider, uint256 bidIndex);
+    event BidCancelled(uint256 indexed orderId, uint256 indexed providerId,  uint256 machineId, uint256 bidIndex);
     event OrderExtended(uint256 indexed orderId, uint256 additionalDuration, uint256 newExpiry);
     event SpecsUpdated(uint256 indexed orderId, string newSpecs);
     event BidTimeExpired(uint256 indexed orderId);
@@ -250,7 +250,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
             machineId: machineId
         }));
         uint256 bidIndex = orderBids[orderId].length - 1;
-        emit BidSubmitted(orderId, msg.sender, pricePerSecond, providerId, machineId, bidIndex);
+        emit BidSubmitted(orderId, providerId, machineId, bidIndex);
     }
 
     /**
@@ -299,7 +299,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         usage.diskGB += order.diskGB;
         // Do not accumulate uploadMbps or downloadMbps
 
-        emit BidAccepted(orderId, bid.provider, bid.pricePerSecond, bidIndex);
+        emit BidAccepted(orderId, bid.providerId, bid.machineId, bidIndex, bid.pricePerSecond);
     }
 
     /**
@@ -441,7 +441,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         require(bid.status == BidStatus.Pending, "Cannot cancel non-pending bid");
 
         bid.status = BidStatus.Cancelled;
-        emit BidCancelled(orderId, msg.sender, bidIndex);
+        emit BidCancelled(orderId, bid.providerId, bid.machineId, bidIndex);
     }
 
     /**
@@ -704,7 +704,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         IERC20(paymentToken).safeTransferFrom(msg.sender, address(this), amount);
 
         emit OrderCreated(orderCount, msg.sender, duration);
-        emit BidAccepted(orderCount, msg.sender, pricePerSecond, 0);
+        emit BidAccepted(orderCount, providerId, machineId, 0, pricePerSecond);
         return orderCount;
     }
 }
