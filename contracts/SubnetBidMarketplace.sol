@@ -70,17 +70,6 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     address public platformWallet; // Address where fees will be sent
     uint256 public totalAccumulatedFees; // Total fees collected by platform
 
-    // Struct for tracking resource usage per machine
-    struct MachineResourceUsage {
-        uint256 cpuCores;
-        uint256 gpuCores;
-        uint256 gpuMemory;
-        uint256 memoryMB;
-        uint256 diskGB;
-        uint256 uploadMbps;
-        uint256 downloadMbps;
-    }
-
     // Events
     event OrderCreated(uint256 indexed orderId, address owner, uint256 duration);
     event BidSubmitted(uint256 indexed orderId, uint256 indexed providerId, uint256 machineId, uint256 bidIndex);
