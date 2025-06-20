@@ -102,6 +102,22 @@ describe("SubnetBidMarketplace", function () {
             await marketplace.setSubnetProviderContract(await provider.getAddress());
             expect(await marketplace.subnetProviderContract()).to.equal(await provider.getAddress());
         });
+
+        it("should allow owner to update order grace period", async function() {
+            const oldGracePeriod = await marketplace.orderGracePeriod();
+            const newGracePeriod = 2 * 24 * 60 * 60; // 2 days
+            
+            await marketplace.setOrderGracePeriod(newGracePeriod);
+            
+            expect(await marketplace.orderGracePeriod()).to.equal(newGracePeriod);
+            expect(await marketplace.orderGracePeriod()).to.not.equal(oldGracePeriod);
+        });
+        
+        it("should not allow non-owner to update order grace period", async function() {
+            await expect(
+                marketplace.connect(client1).setOrderGracePeriod(2 * 24 * 60 * 60)
+            ).to.be.reverted;
+        });
     });
 
     describe("Order Management", function() {
@@ -557,7 +573,90 @@ describe("SubnetBidMarketplace", function () {
         it("should not allow non-owner to close order", async function() {
             await expect(
                 marketplace.connect(client2).closeOrder(orderId, "unauthorized")
-            ).to.be.revertedWith("Not authorized");
+            ).to.be.revertedWith("Only order owner can close orders within grace period");
+        });
+
+        it("should allow extension of recently expired order within grace period", async function() {
+            // Time travel to just after order expiry
+            const order = await marketplace.orders(orderId);
+            const expiryTime = Number(order.expiredAt);
+            const currentTime = Math.floor(Date.now() / 1000);
+            const timeToTravel = expiryTime - currentTime + 60; // 1 minute after expiry
+            
+            await ethers.provider.send("evm_increaseTime", [timeToTravel]);
+            await ethers.provider.send("evm_mine", []);
+            
+            // Verify order is expired
+            const updatedOrder = await marketplace.orders(orderId);
+            const block = await ethers.provider.getBlock("latest");
+            expect(block!.timestamp > Number(updatedOrder.expiredAt)).to.be.true;
+
+            // Calculate amount for extension
+            const pricePerSecond = updatedOrder.acceptedBidPricePerSecond;
+            const amount = pricePerSecond * 24n * 60n * 60n; // 1 day extension
+            
+            // Should be able to extend since we're within grace period
+            await marketplace.connect(client1).extend(orderId, amount);
+            
+            // Check updated expiry
+            const extendedOrder = await marketplace.orders(orderId);
+            expect(extendedOrder.expiredAt).to.be.gt(updatedOrder.expiredAt);
+        });
+        
+        it("should not allow extension beyond grace period", async function() {
+            // Time travel beyond grace period
+            const order = await marketplace.orders(orderId);
+            const gracePeriod = await marketplace.orderGracePeriod();
+            const expiryTime = Number(order.expiredAt);
+            const currentTime = Math.floor(Date.now() / 1000);
+            const timeToTravel = expiryTime - currentTime + Number(gracePeriod) + 3600; // 1 hour beyond grace period
+            
+            await ethers.provider.send("evm_increaseTime", [timeToTravel]);
+            await ethers.provider.send("evm_mine", []);
+            
+            // Calculate amount for extension
+            const pricePerSecond = order.acceptedBidPricePerSecond;
+            const amount = pricePerSecond * 24n * 60n * 60n; // 1 day extension
+            
+            // Should not be able to extend since we're beyond grace period
+            await expect(
+                marketplace.connect(client1).extend(orderId, amount)
+            ).to.be.revertedWith("Order expired beyond grace period");
+        });
+        
+        it("should only allow owner to close order within grace period", async function() {
+            // Time travel to be within grace period
+            await ethers.provider.send("evm_increaseTime", [1]);
+            await ethers.provider.send("evm_mine", []);
+            
+            // Non-owner should not be able to close
+            await expect(
+                marketplace.connect(client2).closeOrder(orderId, "unauthorized")
+            ).to.be.revertedWith("Only order owner can close orders within grace period");
+            
+            // Owner should be able to close
+            await marketplace.connect(client1).closeOrder(orderId, "owner closing");
+            
+            const closedOrder = await marketplace.orders(orderId);
+            expect(closedOrder.status).to.equal(2); // Closed
+        });
+        
+        it("should allow anyone to close order beyond grace period", async function() {
+            // Time travel beyond grace period
+            const order = await marketplace.orders(orderId);
+            const gracePeriod = await marketplace.orderGracePeriod();
+            const expiryTime = Number(order.expiredAt);
+            const currentTime = Math.floor(Date.now() / 1000);
+            const timeToTravel = expiryTime - currentTime + Number(gracePeriod) + 3600; // 1 hour beyond grace period
+            
+            await ethers.provider.send("evm_increaseTime", [timeToTravel]);
+            await ethers.provider.send("evm_mine", []);
+            
+            // Non-owner should now be able to close
+            await marketplace.connect(client2).closeOrder(orderId, "expired and beyond grace period");
+            
+            const closedOrder = await marketplace.orders(orderId);
+            expect(closedOrder.status).to.equal(2); // Closed
         });
     });
 

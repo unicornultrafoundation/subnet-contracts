@@ -53,6 +53,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
 
     // Constants
     uint256 public bidTimeLimit; // Time limit for submitting bids (default: 5 minutes)
+    uint256 public orderGracePeriod; // Grace period after order expiration (default: 1 day)
 
     // orderId counter
     uint256 public orderCount;
@@ -97,7 +98,8 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     event PlatformFeeUpdated(uint256 oldFee, uint256 newFee);
     event PlatformWalletUpdated(address oldWallet, address newWallet);
     event FeesWithdrawn(address wallet, uint256 amount);
-
+    event OrderGracePeriodUpdated(uint256 oldPeriod, uint256 newPeriod);
+    
     /**
      * @dev Initialize the contract (only callable once).
      * @param _paymentToken The ERC20 token address.
@@ -108,6 +110,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         paymentToken = _paymentToken;
         subnetProviderContract = _subnetProviderContract;
         bidTimeLimit = 5 minutes; // Set default to 5 minutes
+        orderGracePeriod = 1 days; // Set default grace period to 1 day
         platformFeePercentage = 100; // Default 1%
         platformWallet = owner; // Default to contract owner
     }
@@ -121,6 +124,17 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         uint256 oldLimit = bidTimeLimit;
         bidTimeLimit = newBidTimeLimit;
         emit BidTimeLimitUpdated(oldLimit, newBidTimeLimit);
+    }
+
+    /**
+     * @dev Set the grace period for orders after expiration (owner only)
+     * @param newGracePeriod New grace period in seconds
+     */
+    function setOrderGracePeriod(uint256 newGracePeriod) external onlyOwner {
+        require(newGracePeriod > 0, "Grace period must be positive");
+        uint256 oldPeriod = orderGracePeriod;
+        orderGracePeriod = newGracePeriod;
+        emit OrderGracePeriodUpdated(oldPeriod, newGracePeriod);
     }
 
     /**
@@ -340,7 +354,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
 
     /**
      * @dev Extend the duration of an order.
-     * Only the order owner can extend, and only if not expired.
+     * Only the order owner can extend, and only if not expired or within grace period.
      * @param orderId The order ID.
      * @param amount The amount to extend the order.
      */
@@ -348,12 +362,12 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         Order storage order = orders[orderId];
         require(order.owner == msg.sender, "Only order owner can extend");
         require(order.status == OrderStatus.Matched, "Order not matched");
-        require(block.timestamp < order.expiredAt, "Order already expired");
+        require(block.timestamp <= order.expiredAt + orderGracePeriod, "Order expired beyond grace period");
 
         uint256 pricePerSecond = order.acceptedBidPricePerSecond;
         require(pricePerSecond > 0, "Price not set");
 
-        uint256 duration =  amount / pricePerSecond;
+        uint256 duration = amount / pricePerSecond;
 
         IERC20(order.paymentToken).safeTransferFrom(msg.sender, address(this), amount);
 
@@ -384,35 +398,36 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
     function closeOrder(uint256 orderId, string memory reason) external {
         Order storage order = orders[orderId];
         require(order.status == OrderStatus.Matched, "Order not active");
-        require(order.owner == msg.sender, "Not authorized");
+        
+        // Check if order has expired beyond grace period or caller is the owner
+        bool isExpiredBeyondGracePeriod = block.timestamp >= order.expiredAt + orderGracePeriod;
+        if (!isExpiredBeyondGracePeriod) {
+            // If not expired beyond grace period, only owner can close
+            require(order.owner == msg.sender, "Only order owner can close orders within grace period");
+        }
         
         // Calculate time used and remaining time
-        uint256 timeUsed = block.timestamp > order.lastPaidAt ? 
-            block.timestamp - order.lastPaidAt : 0;
+        uint256 endTime = block.timestamp < order.expiredAt ? block.timestamp : order.expiredAt;
+        uint256 timeUsed = endTime > order.lastPaidAt ? endTime - order.lastPaidAt : 0;
         uint256 remainingTime = order.expiredAt > block.timestamp ?
             order.expiredAt - block.timestamp : 0;
             
         // Calculate payment for provider and refund for order owner
         uint256 paymentForProvider = timeUsed * order.acceptedBidPricePerSecond;
         uint256 refundAmount = remainingTime * order.acceptedBidPricePerSecond;
-        
-      
-        
+
         // Update order status
         order.status = OrderStatus.Closed;
-        order.lastPaidAt = block.timestamp;
+        order.lastPaidAt = endTime;
 
         bool isMachineActive = ISubnetProvider(subnetProviderContract).isMachineActive(order.acceptedProviderId, order.acceptedMachineId);
         
         // Process payments if needed
         if (paymentForProvider > 0 && isMachineActive) {
             // Apply platform fee to provider payment
-            uint256 platformFee = 0;
-            if (paymentForProvider > 0) {
-                platformFee = calculateFee(paymentForProvider);
-                paymentForProvider -= platformFee;
-                totalAccumulatedFees += platformFee;
-            }
+            uint256 platformFee = calculateFee(paymentForProvider);
+            paymentForProvider -= platformFee;
+            totalAccumulatedFees += platformFee;
 
             address providerOwner = IERC721(subnetProviderContract).ownerOf(order.acceptedProviderId);
             IERC20(order.paymentToken).safeTransfer(providerOwner, paymentForProvider);
@@ -423,7 +438,7 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
         if (refundAmount > 0) {
             IERC20(order.paymentToken).safeTransfer(order.owner, refundAmount);
         }
-        
+        _releaseOrder(orderId); // Release resources of the accepted machine
         emit OrderClosed(orderId, refundAmount, reason);
     }
 
@@ -528,22 +543,14 @@ contract SubnetBidMarketplace is Initializable, OwnableUpgradeable {
      * Can be called when order is expired or closed.
      * @param orderId The order ID.
      */
-    function releaseOrderResource(uint256 orderId) external {
-        Order storage order = orders[orderId];
-        require(
-            order.status == OrderStatus.Closed || 
-            (order.status == OrderStatus.Matched && block.timestamp >= order.expiredAt),
-            "Order not expired or closed"
-        );
-        require(order.acceptedProviderId != 0 && order.acceptedMachineId != 0, "No accepted machine");
-
-        // Decrement resource usage for all resource types except upload/download Mbps
+    function _releaseOrder(uint256 orderId) private {
+        Order memory order = orders[orderId];
         MachineResourceUsage storage usage = machineResourceUsed[order.acceptedProviderId][order.acceptedMachineId];
-        if (usage.cpuCores >= order.cpuCores) usage.cpuCores -= order.cpuCores; else usage.cpuCores = 0;
-        if (usage.gpuCores >= order.gpuCores) usage.gpuCores -= order.gpuCores; else usage.gpuCores = 0;
-        if (usage.gpuMemory >= order.gpuMemory) usage.gpuMemory -= order.gpuMemory; else usage.gpuMemory = 0;
-        if (usage.memoryMB >= order.memoryMB) usage.memoryMB -= order.memoryMB; else usage.memoryMB = 0;
-        if (usage.diskGB >= order.diskGB) usage.diskGB -= order.diskGB; else usage.diskGB = 0;
+        usage.cpuCores -= order.cpuCores;
+        usage.gpuCores -= order.gpuCores;
+        usage.gpuMemory -= order.gpuMemory;
+        usage.memoryMB -= order.memoryMB;
+        usage.diskGB -= order.diskGB;
     }
 
     /**
