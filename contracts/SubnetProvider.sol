@@ -3,7 +3,6 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -12,7 +11,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
  * @dev Contract for subnet providers to register themselves and their machines
  * Also functions as an ERC721 contract for provider NFTs
  */
-contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUpgradeable {
+contract SubnetProvider is Initializable, OwnableUpgradeable {
     using SafeERC20 for IERC20;
 
     // Constants become state variable that can be updated by owner
@@ -21,52 +20,40 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
     // Structures
     struct Provider {
         address operator; // Address of the provider's operator
+        address owner;    // Provider owner address (identifier)
         bool registered;
         uint256 reputation; // Reputation score (0-100)
-        uint256 machineCount;
         uint256 createdAt;
         uint256 updatedAt;
-        uint256 totalStaked;      // Total amount staked by provider
-        uint256 pendingWithdrawals; // Amount scheduled for withdrawal
-        uint256 slashedAmount;    // Total amount slashed from provider
-        uint256 tokenId;          // NFT token ID for this provider
-        string metadata;       // Additional metadata URI
-        bool isSlashed;         // Whether the provider has been slashed
-        bool isActive;          // Whether the provider is currently active
-        bool verified;          // Verification status (renamed from isProviderVerified)
-    }
-
-    struct Machine {
-        bool active;             // Whether the machine is currently active
+        uint256 totalStaked;      // Total amount staked by provider (current active stake)
+        uint256 pendingWithdrawals; // Amount scheduled for withdrawal (once deactivated)
+        uint256 slashedAmount;    // Total amount slashed from provider over time
+        string metadata;          // Additional metadata URI
+        bool isSlashed;           // Whether the provider has been slashed (at least once)
+        bool isActive;            // Whether the provider is currently active
+        bool verified;            // Verification status (renamed from isProviderVerified)
+        // Unified "machine" specifications for this provider
         uint256 machineType;
         uint256 region;
-        // Detailed resource specifications
-        uint256 cpuCores;    // Number of CPU cores
-        uint256 gpuCores;    // GPU cores (0 if no GPU)
-        uint256 gpuMemory;   // GPU memory in MB
-        uint256 memoryMB;    // RAM in MB
-        uint256 diskGB;      // Storage in GB
-        uint256 uploadSpeed; // Upload speed in Mbps (optional)
-        uint256 downloadSpeed; // Download speed in Mbps (optional)
-        uint256 createdAt;
-        uint256 updatedAt;
-        uint256 stakeAmount; // Amount staked for this machine
-        uint256 removedAt;   // When machine was removed (0 if still active)
-        uint256 unlockTime;  // When stake can be withdrawn after removal
-        bool withdrawalProcessed; // Whether withdrawal has been processed
-        string metadata;     // Additional metadata for the machine
-        // uint256 pricePerSecond; // REMOVE this line
-        // Add price per resource type (per second)
+        uint256 cpuCores;
+        uint256 gpuCores;
+        uint256 gpuMemory;
+        uint256 memoryMB;
+        uint256 diskGB;
+        // Pricing (per second)
         uint256 cpuPricePerSecond;
         uint256 gpuPricePerSecond;
         uint256 memoryPricePerSecond;
         uint256 diskPricePerSecond;
-        // You can add more if needed (e.g., gpuMemoryPricePerSecond)
+        // Lifecycle of the active stake
+        uint256 stakeAmount;      // Stake backing the active provider specs
+        uint256 removedAt;        // Timestamp when deactivated (0 if active)
+        uint256 unlockTime;       // When stake becomes withdrawable
+        bool withdrawalProcessed; // Whether withdrawal has been processed
     }
 
     // State variables
-    mapping(uint256 => Provider) public providers;
-    mapping(uint256 => Machine[]) public providerMachines;
+    mapping(address => Provider) public providers;
 
     // Staking related variables
     address public stakingToken;
@@ -78,50 +65,51 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
     uint256 public gpuStakeRate;         // Tokens per GPU core
     uint256 public memoryStakeRate;      // Tokens per GB of memory
     uint256 public diskStakeRate;        // Tokens per GB of disk
-    uint256 public uploadSpeedStakeRate;  // Tokens per Mbps of upload speed
-    uint256 public downloadSpeedStakeRate; // Tokens per Mbps of download speed
 
-    // Counter for NFT token IDs
-    uint256 private _nextTokenId;
+    // Resource locking for orders
+    struct LockedResources {
+        uint256 cpuCores;
+        uint256 gpuCores;
+        uint256 memoryMB;
+        uint256 diskGB;
+    }
+    mapping(address => LockedResources) public lockedResources; // provider => locked resources
+    mapping(address => bool) public authorizedLockers; // locker address => authorized (global for all providers)
 
     // Events
-    event ProviderUpdated(uint256 indexed providerId);
-    event MachineAdded(uint256 indexed providerId, uint256 machineId, uint256 stakedAmount);
-    event MachineUpdated(uint256 indexed providerId, uint256 machineId, uint256 additionalStake);
-    event MachineRemoved(uint256 indexed providerId, uint256 machineId, uint256 unlocktime);
-    event StakeSlashed(uint256 indexed providerId, uint256 machineId, uint256 amount, string reason);
-    event StakeWithdrawn(uint256 indexed providerId, uint256 machineId, uint256 amount);
+    event ProviderUpdated(address indexed provider);
+    event ProviderRegistered(address indexed provider, uint256 stakedAmount);
+    event ProviderSpecsUpdated(address indexed provider, uint256 additionalStake);
+    event ProviderDeactivated(address indexed provider, uint256 unlocktime);
+    event StakeSlashed(address indexed provider, uint256 amount, string reason);
+    event StakeWithdrawn(address indexed provider, uint256 amount);
     event LockPeriodUpdated(uint256 oldPeriod, uint256 newPeriod);
     event StakeParametersUpdated(
         uint256 baseAmount, 
         uint256 cpuRate, 
         uint256 gpuRate, 
         uint256 memoryRate, 
-        uint256 diskRate,
-        uint256 uploadSpeedRate,
-        uint256 downloadSpeedRate
+        uint256 diskRate
     );
-    event MachineResourcePriceUpdated(
-        uint256 indexed providerId,
-        uint256 indexed machineId,
+    event ResourcePriceUpdated(
+        address indexed provider,
         uint256 cpuPricePerSecond,
         uint256 gpuPricePerSecond,
         uint256 memoryPricePerSecond,
         uint256 diskPricePerSecond
     );
-    event ProviderVerified(uint256 indexed providerId, bool verified);
-    event ProviderReputationUpdated(uint256 indexed providerId, uint256 newReputation);
+    event ProviderVerified(address indexed providerId, bool verified);
+    event ProviderReputationUpdated(address indexed providerId, uint256 newReputation);
+    event ResourcesLocked(address indexed provider, uint256 cpuCores, uint256 gpuCores, uint256 memoryMB, uint256 diskGB);
+    event ResourcesUnlocked(address indexed provider, uint256 cpuCores, uint256 gpuCores, uint256 memoryMB, uint256 diskGB);
 
     /**
      * @dev Initialize the contract
      */
-    function initialize(address owner, address _stakingToken, string memory nftName, string memory nftSymbol) external initializer {
+    function initialize(address owner, address _stakingToken) external initializer {
         __Ownable_init(owner);
-        __ERC721_init(nftName, nftSymbol);
-        __ERC721URIStorage_init();
         
         stakingToken = _stakingToken;
-        _nextTokenId = 1; // Start token IDs from 1
         
         // Set default stake parameters with more accurate resource pricing
         baseStakeAmount = 500 * 10**18;  // Base stake for participating (500 tokens)
@@ -129,8 +117,6 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         gpuStakeRate = 1000 * 10**18;    // 1000 tokens per GPU core (premium resource)
         memoryStakeRate = 20 * 10**18;   // 20 tokens per GB of RAM
         diskStakeRate = 2 * 10**18;      // 2 tokens per GB of disk
-        uploadSpeedStakeRate = 10 * 10**18;  // 10 tokens per Mbps upload (premium for good upload)
-        downloadSpeedStakeRate = 5 * 10**18; // 5 tokens per Mbps download
         
         lockPeriod = 3 weeks; // Default 3 weeks lock period
     }
@@ -142,34 +128,26 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      * @param newGpuStakeRate New GPU stake rate (tokens per core)
      * @param newMemoryStakeRate New memory stake rate (tokens per GB)
      * @param newDiskStakeRate New disk stake rate (tokens per GB)
-     * @param newUploadSpeedStakeRate New upload speed stake rate (tokens per Mbps)
-     * @param newDownloadSpeedStakeRate New download speed stake rate (tokens per Mbps)
      */
     function setStakeParameters(
         uint256 newBaseStakeAmount,
         uint256 newCpuStakeRate,
         uint256 newGpuStakeRate,
         uint256 newMemoryStakeRate,
-        uint256 newDiskStakeRate,
-        uint256 newUploadSpeedStakeRate,
-        uint256 newDownloadSpeedStakeRate
+        uint256 newDiskStakeRate
     ) external onlyOwner {
         baseStakeAmount = newBaseStakeAmount;
         cpuStakeRate = newCpuStakeRate;
         gpuStakeRate = newGpuStakeRate;
         memoryStakeRate = newMemoryStakeRate;
         diskStakeRate = newDiskStakeRate;
-        uploadSpeedStakeRate = newUploadSpeedStakeRate;
-        downloadSpeedStakeRate = newDownloadSpeedStakeRate;
         
         emit StakeParametersUpdated(
             newBaseStakeAmount,
             newCpuStakeRate,
             newGpuStakeRate,
             newMemoryStakeRate,
-            newDiskStakeRate,
-            newUploadSpeedStakeRate,
-            newDownloadSpeedStakeRate
+            newDiskStakeRate
         );
     }
 
@@ -185,95 +163,52 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
     }
 
     /**
-     * @dev Calculate required stake based on machine resources
+     * @dev Calculate required stake based on resources and pricing.
+     *      Requirement: at least stake the estimated 1-month revenue.
      * @param cpuCores Number of CPU cores
      * @param gpuCores Number of GPU cores
      * @param memoryMB Memory in MB
      * @param diskGB Storage in GB
-     * @param uploadSpeed Upload speed in Mbps
-     * @param downloadSpeed Download speed in Mbps
+     * @param cpuPricePerSecond CPU price per second
+     * @param gpuPricePerSecond GPU price per second
+     * @param memoryPricePerSecond Memory price per second
+     * @param diskPricePerSecond Disk price per second
      */
     function calculateRequiredStake(
         uint256 cpuCores, 
         uint256 gpuCores, 
         uint256 memoryMB, 
         uint256 diskGB,
-        uint256 uploadSpeed,
-        uint256 downloadSpeed
+        uint256 cpuPricePerSecond,
+        uint256 gpuPricePerSecond,
+        uint256 memoryPricePerSecond,
+        uint256 diskPricePerSecond
     ) public view returns (uint256) {
-        // Calculate stake using configurable rates
+        // Stake floor from resource configuration
         uint256 cpuStake = cpuCores * cpuStakeRate;
         uint256 gpuStake = gpuCores * gpuStakeRate;
         uint256 memoryStake = (memoryMB * memoryStakeRate) / 1024; // Convert MB to GB
         uint256 diskStake = diskGB * diskStakeRate;
-        uint256 uploadSpeedStake = uploadSpeed * uploadSpeedStakeRate;
-        uint256 downloadSpeedStake = downloadSpeed * downloadSpeedStakeRate;
+        uint256 resourceStake = cpuStake + gpuStake + memoryStake + diskStake;
+
+        // Estimated revenue per second from pricing
+        uint256 memoryGB = memoryMB / 1024;
+        uint256 revenuePerSecond = (cpuCores * cpuPricePerSecond)
+            + (gpuCores * gpuPricePerSecond)
+            + (memoryGB * memoryPricePerSecond)
+            + (diskGB * diskPricePerSecond);
         
-        uint256 resourceStake = cpuStake + gpuStake + memoryStake + diskStake + uploadSpeedStake + downloadSpeedStake;
-        return baseStakeAmount + resourceStake;
+        // Require at least one month of revenue as stake
+        uint256 monthlyRevenueStake = revenuePerSecond * 30 days;
+
+        return baseStakeAmount + resourceStake + monthlyRevenueStake;
     }
 
     /**
-     * @dev Register a new provider and mint NFT
+     * @dev Register a new provider (1 provider = 1 machine) and mint NFT
+     *      This call transfers the required stake based on specs.
+     * @param operator Operator address
      * @param metadata Provider metadata
-     * @return The token ID of the minted NFT
-     */
-    function registerProvider(
-        address operator,
-        string memory metadata
-    ) external returns (uint256) {
-        return _registerProvider(operator, metadata);
-    }
-
-    function _registerProvider(
-        address operator,
-        string memory metadata
-    ) internal returns (uint256) {
-        // Mint NFT for the provider
-        uint256 tokenId = _nextTokenId++;
-        _mint(msg.sender, tokenId);
-
-        providers[tokenId] = Provider({
-            operator: operator,
-            registered: true,
-            metadata: metadata,
-            reputation: 100, // Default max reputation
-            machineCount: 0,
-            createdAt: block.timestamp,
-            updatedAt: block.timestamp,
-            totalStaked: 0,
-            pendingWithdrawals: 0,
-            slashedAmount: 0,
-            tokenId: tokenId,
-            isSlashed: false,
-            isActive: true,
-            verified: false
-        });
-
-        return tokenId;
-    }
-
-    /**
-     * @dev Update provider information
-     * @param metadata Updated provider metadata
-     */
-    function updateProviderInfo(
-        uint256 providerId,
-        string memory metadata
-    ) external {
-        require(providers[providerId].registered, "Provider not registered");
-        require(ownerOf(providerId) == msg.sender, "Only token owner can update provider info");
-
-        Provider storage provider = providers[providerId];
-        provider.metadata = metadata;
-        provider.updatedAt = block.timestamp;
-
-        emit ProviderUpdated(providerId);
-    }
-
-    /**
-     * @dev Add a new machine for the provider with staking
-     * @param providerId Provider ID
      * @param machineType Type of virtualization
      * @param region Location information
      * @param cpuCores Number of CPU cores
@@ -281,11 +216,15 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      * @param gpuMemory GPU memory in MB
      * @param memoryMB RAM in MB
      * @param diskGB Storage in GB
-     * @param metadata Additional metadata for the machine
-     * @return machineId ID of the newly added machine
+     * @param cpuPricePerSecond CPU price per second
+     * @param gpuPricePerSecond GPU price per second
+     * @param memoryPricePerSecond Memory price per second
+     * @param diskPricePerSecond Disk price per second
+     * @return The provider owner address
      */
-    function addMachine(
-        uint256 providerId,
+    function registerProvider(
+        address operator,
+        string memory metadata,
         uint256 machineType, 
         uint256 region,
         uint256 cpuCores,
@@ -293,72 +232,38 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
         uint256 gpuMemory,
         uint256 memoryMB,
         uint256 diskGB,
-        uint256 uploadSpeed,
-        uint256 downloadSpeed,
-        string memory metadata,
         uint256 cpuPricePerSecond,
         uint256 gpuPricePerSecond,
         uint256 memoryPricePerSecond,
         uint256 diskPricePerSecond
-    ) external returns (uint256) {
-        return _addMachine(
-            providerId,
-            machineType,
-            region,
-            cpuCores,
-            gpuCores,
-            gpuMemory,
-            memoryMB,
-            diskGB,
-            uploadSpeed,
-            downloadSpeed,
-            metadata,
-            cpuPricePerSecond,
-            gpuPricePerSecond,
-            memoryPricePerSecond,
-            diskPricePerSecond
-        );
-    }
-
-    function _addMachine(
-        uint256 providerId,
-        uint256 machineType, 
-        uint256 region,
-        uint256 cpuCores,
-        uint256 gpuCores,
-        uint256 gpuMemory,
-        uint256 memoryMB,
-        uint256 diskGB,
-        uint256 uploadSpeed,
-        uint256 downloadSpeed,
-        string memory metadata,
-        uint256 cpuPricePerSecond,
-        uint256 gpuPricePerSecond,
-        uint256 memoryPricePerSecond,
-        uint256 diskPricePerSecond
-    ) private returns (uint256) {
-        require(providers[providerId].registered, "Provider not registered");
-        require(!providers[providerId].isSlashed, "Provider is slashed");
-        require(ownerOf(providerId) == msg.sender, "Only token owner can add machine");
-
-        // Calculate required stake amount based on resources
+    ) external returns (address) {
+        // Calculate and collect stake
         uint256 requiredStake = calculateRequiredStake(
             cpuCores,
             gpuCores,
             memoryMB,
             diskGB,
-            uploadSpeed,
-            downloadSpeed
+            cpuPricePerSecond,
+            gpuPricePerSecond,
+            memoryPricePerSecond,
+            diskPricePerSecond
         );
-        
-        // Transfer stake from provider to contract
         IERC20(stakingToken).safeTransferFrom(msg.sender, address(this), requiredStake);
 
-        Provider storage provider = providers[providerId];
-        uint256 machineId = provider.machineCount;
-
-        Machine memory machine = Machine({
-            active: true,
+        providers[msg.sender] = Provider({
+            operator: operator,
+            owner: msg.sender,
+            registered: true,
+            metadata: metadata,
+            reputation: 100, // Default max reputation
+            createdAt: block.timestamp,
+            updatedAt: block.timestamp,
+            totalStaked: requiredStake,
+            pendingWithdrawals: 0, // 0 while active
+            slashedAmount: 0,
+            isSlashed: false,
+            isActive: true,
+            verified: false,
             machineType: machineType,
             region: region,
             cpuCores: cpuCores,
@@ -366,56 +271,60 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             gpuMemory: gpuMemory,
             memoryMB: memoryMB,
             diskGB: diskGB,
-            createdAt: block.timestamp,
-            updatedAt: block.timestamp,
-            stakeAmount: requiredStake,
-            removedAt: 0,
-            unlockTime: 0,
-            withdrawalProcessed: false,
-            metadata: metadata,
-            uploadSpeed: uploadSpeed,
-            downloadSpeed: downloadSpeed,
             cpuPricePerSecond: cpuPricePerSecond,
             gpuPricePerSecond: gpuPricePerSecond,
             memoryPricePerSecond: memoryPricePerSecond,
-            diskPricePerSecond: diskPricePerSecond
+            diskPricePerSecond: diskPricePerSecond,
+            stakeAmount: requiredStake,
+            removedAt: 0,
+            unlockTime: 0,
+            withdrawalProcessed: false
         });
 
-        providerMachines[providerId].push(machine);
-        provider.machineCount++;
-        provider.updatedAt = block.timestamp;
-        provider.totalStaked += requiredStake;
-
-        emit MachineAdded(providerId, machineId, requiredStake);
-        return machineId;
+        emit ProviderRegistered(msg.sender, requiredStake);
+        return msg.sender;
     }
 
     /**
-     * @dev Update machine details with potential restaking
+     * @dev Update provider metadata only
      */
-    function updateMachine(
-        uint256 providerId,
-        uint256 machineId,
+    function updateProviderInfo(
+        address provider,
+        string memory metadata
+    ) external {
+        require(providers[provider].registered, "Provider not registered");
+        require(provider == msg.sender, "Only owner can update provider info");
+
+        Provider storage p = providers[provider];
+        p.metadata = metadata;
+        p.updatedAt = block.timestamp;
+
+        emit ProviderUpdated(provider);
+    }
+
+    /**
+     * @dev Update provider specs (may require additional stake; disallow downgrades)
+     */
+    function updateProviderSpecs(
+        address provider,
+        uint256 machineType,
+        uint256 region,
         uint256 cpuCores,
         uint256 gpuCores,
         uint256 gpuMemory,
         uint256 memoryMB,
         uint256 diskGB,
-        uint256 uploadSpeed,
-        uint256 downloadSpeed,
         string memory metadata,
         uint256 cpuPricePerSecond,
         uint256 gpuPricePerSecond,
         uint256 memoryPricePerSecond,
         uint256 diskPricePerSecond
     ) external {
-        require(providers[providerId].registered, "Provider not registered");
-        require(!providers[providerId].isSlashed, "Provider is slashed");
-        require(ownerOf(providerId) == msg.sender, "Only token owner can update machine");
-        require(machineId < providers[providerId].machineCount, "Invalid machine ID");
-
-        Machine storage machine = providerMachines[providerId][machineId];
-        Provider storage provider = providers[providerId];
+        require(providers[provider].registered, "Provider not registered");
+        require(!providers[provider].isSlashed, "Provider is slashed");
+        Provider storage p = providers[provider];
+        require(provider == msg.sender, "Only owner can update specs");
+        require(p.isActive, "Provider not active");
 
         // Calculate new required stake
         uint256 newRequiredStake = calculateRequiredStake(
@@ -423,124 +332,112 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
             gpuCores, 
             memoryMB,
             diskGB,
-            uploadSpeed,
-            downloadSpeed
+            cpuPricePerSecond,
+            gpuPricePerSecond,
+            memoryPricePerSecond,
+            diskPricePerSecond
         );
-        uint256 currentStake = machine.stakeAmount;
+        uint256 currentStake = p.stakeAmount;
         
         // Only allow updates that maintain or increase resources/stake
         require(newRequiredStake >= currentStake, "Cannot downgrade machine resources");
         
         uint256 additionalStake = newRequiredStake - currentStake;
-        IERC20(stakingToken).safeTransferFrom(msg.sender, address(this), additionalStake);
-        provider.totalStaked += additionalStake;
+        if (additionalStake > 0) {
+            IERC20(stakingToken).safeTransferFrom(msg.sender, address(this), additionalStake);
+            p.totalStaked += additionalStake;
+        }
         
-        // Update machine details
-        machine.cpuCores = cpuCores;
-        machine.gpuCores = gpuCores;
-        machine.gpuMemory = gpuMemory;
-        machine.memoryMB = memoryMB;
-        machine.diskGB = diskGB;
-        machine.metadata = metadata;
-        machine.updatedAt = block.timestamp;
-        machine.stakeAmount = newRequiredStake;
-        machine.uploadSpeed = uploadSpeed;
-        machine.downloadSpeed = downloadSpeed;
-        machine.cpuPricePerSecond = cpuPricePerSecond;
-        machine.gpuPricePerSecond = gpuPricePerSecond;
-        machine.memoryPricePerSecond = memoryPricePerSecond;
-        machine.diskPricePerSecond = diskPricePerSecond;
+        // Update specs and pricing
+        p.machineType = machineType;
+        p.region = region;
+        p.cpuCores = cpuCores;
+        p.gpuCores = gpuCores;
+        p.gpuMemory = gpuMemory;
+        p.memoryMB = memoryMB;
+        p.diskGB = diskGB;
+        p.metadata = metadata;
+        p.cpuPricePerSecond = cpuPricePerSecond;
+        p.gpuPricePerSecond = gpuPricePerSecond;
+        p.memoryPricePerSecond = memoryPricePerSecond;
+        p.diskPricePerSecond = diskPricePerSecond;
+        p.updatedAt = block.timestamp;
+        p.stakeAmount = newRequiredStake;
         
-        provider.updatedAt = block.timestamp;
-
-        emit MachineUpdated(providerId, machineId, additionalStake);
+        emit ProviderSpecsUpdated(provider, additionalStake);
     }
 
     /**
-     * @dev Remove a machine and set unlock time for stake withdrawal
-     * @param machineId ID of the machine to remove
+     * @dev Deactivate provider and set unlock time for stake withdrawal
      */
-    function removeMachine(uint256 providerId, uint256 machineId) external {
-        require(providers[providerId].registered, "Provider not registered");
-        require(ownerOf(providerId) == msg.sender, "Only token owner can remove machine");
-        require(machineId < providers[providerId].machineCount, "Invalid machine ID");
-
-        Machine storage machine = providerMachines[providerId][machineId];
-        Provider storage provider = providers[providerId];
+    function deactivateProvider(address provider) external {
+        require(providers[provider].registered, "Provider not registered");
+        require(provider == msg.sender, "Only owner can deactivate");
+        Provider storage p = providers[provider];
+        require(p.isActive, "Already deactivated");
 
         // Set unlock time with current lock period
-        uint256 stakedAmount = machine.stakeAmount;
+        uint256 stakedAmount = p.stakeAmount;
         uint256 unlockTime = block.timestamp + lockPeriod;
         
-        provider.pendingWithdrawals += stakedAmount;
-        provider.totalStaked -= stakedAmount;
+        p.pendingWithdrawals += stakedAmount;
+        p.totalStaked -= stakedAmount;
+        p.isActive = false;
         
-        // Mark machine as removed and set unlock time
-        machine.active = false;
-        machine.removedAt = block.timestamp;
-        machine.unlockTime = unlockTime;
-        machine.withdrawalProcessed = false;
-        machine.updatedAt = block.timestamp;
+        // Mark as removed and set unlock time
+        p.removedAt = block.timestamp;
+        p.unlockTime = unlockTime;
+        p.withdrawalProcessed = false;
         
-        provider.updatedAt = block.timestamp;
+        p.updatedAt = block.timestamp;
 
-        emit MachineRemoved(providerId, machineId, unlockTime);
+        emit ProviderDeactivated(provider, unlockTime);
     }
 
     /**
      * @dev Claim withdrawable stake after lock period
-     * @param machineId ID of the machine whose stake to withdraw
      */
-    function claimWithdrawal(uint256 providerId, uint256 machineId) external {
-        require(providers[providerId].registered, "Provider not registered");
-        require(!providers[providerId].isSlashed, "Provider is slashed");
-        require(machineId < providerMachines[providerId].length, "Invalid machine ID");
-
-        Machine storage machine = providerMachines[providerId][machineId];
-        require(!machine.active, "Machine still active");
-        require(!machine.withdrawalProcessed, "Already processed");
-        require(block.timestamp >= machine.unlockTime, "Still locked");
+    function claimWithdrawal(address provider) external {
+        require(providers[provider].registered, "Provider not registered");
+        require(!providers[provider].isSlashed, "Provider is slashed");
+        Provider storage p = providers[provider];
+        require(provider == msg.sender, "Only owner can claim");
+        require(!p.isActive, "Still active");
+        require(!p.withdrawalProcessed, "Already processed");
+        require(block.timestamp >= p.unlockTime, "Still locked");
         
-        uint256 amount = machine.stakeAmount;
-        machine.withdrawalProcessed = true;
-
-        providers[providerId].pendingWithdrawals -= amount;
-        providers[providerId].machineCount--;
+        uint256 amount = p.stakeAmount;
+        p.withdrawalProcessed = true;
+        p.pendingWithdrawals -= amount;
 
         IERC20(stakingToken).safeTransfer(msg.sender, amount);
-        emit StakeWithdrawn(providerId, machineId, amount);
+        emit StakeWithdrawn(provider, amount);
     }
 
     /**
-     * @dev Admin function to slash stake from a machine (penalize bad behavior)
+     * @dev Admin function to slash stake from a provider (penalize bad behavior)
      * @param providerId ID of the provider
-     * @param machineId ID of the machine
      * @param amount Amount to slash
      * @param reason Reason for slashing
      */
     function slashStake(
-        uint256 providerId,
-        uint256 machineId,
+        address providerId,
         uint256 amount,
         string memory reason
     ) external onlyOwner {
         require(providers[providerId].registered, "Provider not registered");
-        require(machineId < providers[providerId].machineCount, "Invalid machine ID");
-
-        Machine storage machine = providerMachines[providerId][machineId];
-        require(machine.stakeAmount >= amount, "Cannot slash more than staked");
-
-        Provider storage provider = providers[providerId];
+        Provider storage p = providers[providerId];
+        require(p.stakeAmount >= amount, "Cannot slash more than staked");
 
         // Reduce stake and record slashing
-        machine.stakeAmount -= amount;
-        provider.totalStaked -= amount;
-        provider.slashedAmount += amount;
-        provider.isSlashed = true;
-        provider.isActive = false;
+        p.stakeAmount -= amount;
+        p.totalStaked -= amount;
+        p.slashedAmount += amount;
+        p.isSlashed = true;
+        p.isActive = false;
         totalSlashed += amount;
 
-        emit StakeSlashed(providerId, machineId, amount, reason);
+        emit StakeSlashed(providerId, amount, reason);
     }
     
     /**
@@ -560,96 +457,32 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      * @param providerId ID of the provider
      * @return Total slashed from provider
      */
-    function getProviderSlashedAmount(uint256 providerId) external view returns (uint256) {
+    function getProviderSlashedAmount(address providerId) external view returns (uint256) {
         return providers[providerId].slashedAmount;
     }
     
     /**
-     * @dev Get all machines for a provider
-     * @param providerId ID of the provider
-     * @return Array of Machine structs
+     * @dev Check if a provider is currently active
      */
-    function getMachines(uint256 providerId) external view returns (Machine[] memory) {
-        return providerMachines[providerId];
-    }
-    
-    /**
-     * @dev Get machines for a provider with pagination
-     * @param providerId ID of the provider
-     * @param start Starting index
-     * @param end Ending index (exclusive)
-     * @return Array of Machine structs within the specified range
-     */
-    function getMachinesPaginated(uint256 providerId, uint256 start, uint256 end) external view returns (Machine[] memory) {
-        require(providers[providerId].registered, "Provider not registered");
-        require(!providers[providerId].isSlashed, "Provider is slashed");
-        require(start <= end, "Invalid range: start must be <= end");
-        require(end <= providerMachines[providerId].length, "End index out of bounds");
-        
-        uint256 length = end - start;
-        Machine[] memory result = new Machine[](length);
-        
-        for (uint256 i = 0; i < length; i++) {
-            result[i] = providerMachines[providerId][start + i];
-        }
-        
-        return result;
-    }
-    
-    /**
-     * @dev Get active machines for a provider with pagination
-     * @param providerId ID of the provider
-     * @param start Starting index
-     * @param limit Maximum number of active machines to return
-     * @return Array of active Machine structs
-     */
-    function getActiveMachinesPaginated(uint256 providerId, uint256 start, uint256 limit) external view returns (Machine[] memory) {
-        require(providers[providerId].registered, "Provider not registered");
-        require(!providers[providerId].isSlashed, "Provider is slashed");
-        require(start < providerMachines[providerId].length, "Start index out of bounds");
-        
-        // Count active machines first to allocate properly sized array
-        uint256 activeCount = 0;
-        for (uint256 i = 0; i < providerMachines[providerId].length; i++) {
-            if (providerMachines[providerId][i].active) {
-                activeCount++;
-            }
-        }
-        
-        uint256 resultSize = activeCount < limit ? activeCount : limit;
-        Machine[] memory result = new Machine[](resultSize);
-        
-        // Fill result array with active machines
-        uint256 resultIndex = 0;
-        uint256 skipped = 0;
-        for (uint256 i = 0; i < providerMachines[providerId].length && resultIndex < resultSize; i++) {
-            if (providerMachines[providerId][i].active) {
-                if (skipped >= start) {
-                    result[resultIndex] = providerMachines[providerId][i];
-                    resultIndex++;
-                } else {
-                    skipped++;
-                }
-            }
-        }
-        
-        return result;
+    function isProviderActive(address providerId) external view returns (bool) {
+        Provider storage p = providers[providerId];
+        return p.registered && !p.isSlashed && p.isActive;
     }
     
     /**
      * @dev Check if address is provider owner or operator
-     * @param providerId ID of the provider
+     * @param provider Address of the provider owner
      * @param account Address to check
      * @return True if address is provider owner or operator
      */
-    function isProviderOperatorOrOwner(uint256 providerId, address account) public view returns (bool) {
-        require(providers[providerId].registered, "Provider not registered");
+    function isProviderOperatorOrOwner(address provider, address account) public view returns (bool) {
+        require(providers[provider].registered, "Provider not registered");
         
-        // Check if the account is the owner of the token
-        bool isOwner = ownerOf(providerId) == account;
+        // Check owner
+        bool isOwner = provider == account;
         
         // Check if the account is the designated operator
-        bool isOperator = providers[providerId].operator == account;
+        bool isOperator = providers[provider].operator == account;
         
         return isOwner || isOperator;
     }
@@ -657,115 +490,100 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
     /**
      * @dev Modifier to restrict function to provider owner or operator
      */
-    modifier onlyProviderOperatorOrOwner(uint256 providerId) {
+    modifier onlyProviderOperatorOrOwner(address providerId) {
         require(isProviderOperatorOrOwner(providerId, msg.sender), "Not provider owner or operator");
         _;
     }
 
     /**
      * @dev Update provider operator address
-     * @param providerId Provider ID
+     * @param provider Provider owner address
      * @param newOperator New operator address
      */
-    function setProviderOperator(uint256 providerId, address newOperator) external {
-        require(ownerOf(providerId) == msg.sender, "Only token owner can set operator");
-        require(!providers[providerId].isSlashed, "Provider is slashed");
-        providers[providerId].operator = newOperator;
-        providers[providerId].updatedAt = block.timestamp;
+    function setProviderOperator(address provider, address newOperator) external {
+        require(provider == msg.sender, "Only owner can set operator");
+        require(!providers[provider].isSlashed, "Provider is slashed");
+        providers[provider].operator = newOperator;
+        providers[provider].updatedAt = block.timestamp;
     }
 
     /**
-     * @dev Check if a machine is currently active
-     * @param providerId ID of the provider
-     * @param machineId ID of the machine
-     * @return True if the machine is active, false otherwise
-     */
-    function isMachineActive(uint256 providerId, uint256 machineId) external view returns (bool) {
-        return providers[providerId].registered && 
-            !providers[providerId].isSlashed && 
-            machineId < providerMachines[providerId].length && 
-            providerMachines[providerId][machineId].active;
-    }
-    
-    /**
-     * @dev Validate if a machine meets minimum requirements
+     * @dev Validate if a provider meets minimum requirements (checking available resources)
      * @param machineType Type of the machine
      * @param providerId ID of the provider
-     * @param machineId ID of the machine
      * @param minCpuCores Minimum CPU cores required
      * @param minMemoryMB Minimum memory required
      * @param minDiskGB Minimum disk space required
      * @param minGpuCores Minimum GPU cores required
      * @return True if machine meets requirements
      */
-    function validateMachineRequirements(
+    function validateProviderRequirements(
         uint256 machineType,
-        uint256 providerId,
-        uint256 machineId,
+        address providerId,
         uint256 minCpuCores,
         uint256 minMemoryMB,
         uint256 minDiskGB,
-        uint256 minGpuCores,
-        uint256 minUploadSpeed,
-        uint256 minDownloadSpeed
+        uint256 minGpuCores
     ) external view returns (bool) {
         // Check if provider and machine exist
-        if (!providers[providerId].registered || providers[providerId].isSlashed || machineId >= providerMachines[providerId].length) {
+        if (!providers[providerId].registered || providers[providerId].isSlashed) {
             return false;
         }
         
-        Machine memory machine = providerMachines[providerId][machineId];
+        Provider memory p = providers[providerId];
+        LockedResources memory locked = lockedResources[providerId];
         
-        // Machine must be active and meet all requirements
-        return machine.active &&
-               machine.cpuCores >= minCpuCores &&
-               machine.memoryMB >= minMemoryMB &&
-               machine.diskGB >= minDiskGB &&
-               machine.gpuCores >= minGpuCores &&
-               machine.uploadSpeed >= minUploadSpeed &&
-               machine.downloadSpeed >= minDownloadSpeed && 
-               machine.machineType == machineType;
+        // Check available resources (total - locked)
+        uint256 availableCpu = p.cpuCores >= locked.cpuCores ? p.cpuCores - locked.cpuCores : 0;
+        uint256 availableGpu = p.gpuCores >= locked.gpuCores ? p.gpuCores - locked.gpuCores : 0;
+        uint256 availableMemory = p.memoryMB >= locked.memoryMB ? p.memoryMB - locked.memoryMB : 0;
+        uint256 availableDisk = p.diskGB >= locked.diskGB ? p.diskGB - locked.diskGB : 0;
+        
+        // Provider must be active and meet all requirements with available resources
+        return p.isActive &&
+               availableCpu >= minCpuCores &&
+               availableMemory >= minMemoryMB &&
+               availableDisk >= minDiskGB &&
+               availableGpu >= minGpuCores &&
+               p.machineType == machineType;
     }
     
     /**
      * @dev Get provider details
-     * @param providerId ID of the provider
+     * @param providerId Address of the provider
      * @return provider Provider struct with details
      */
-    function getProvider(uint256 providerId) external view returns (Provider memory provider ) {
+    function getProvider(address providerId) external view returns (Provider memory provider ) {
         return providers[providerId];
     }
 
     /**
-     * @dev Get provider owner address
-     * @param providerId ID of the provider
-     * @return Address of the provider's NFT owner
+     * @dev Get provider owner address (equals providerId)
+     * @param providerId Address of the provider
+     * @return Address of the provider's owner
      */
-    function getProviderOwner(uint256 providerId) external view returns (address) {
-        return ownerOf(providerId);
+    function getProviderOwner(address providerId) external pure returns (address) {
+        return providerId;
     }
 
     /**
-     * @dev Update price for a machine per resource (provider owner or operator only)
+     * @dev Update price per resource (provider owner or operator only)
      */
-    function setMachineResourcePrice(
-        uint256 providerId,
-        uint256 machineId,
+    function setResourcePrice(
+        address providerId,
         uint256 cpuPricePerSecond,
         uint256 gpuPricePerSecond,
         uint256 memoryPricePerSecond,
         uint256 diskPricePerSecond
     ) external onlyProviderOperatorOrOwner(providerId) {
-        require(machineId < providers[providerId].machineCount, "Invalid machine ID");
-        Machine storage machine = providerMachines[providerId][machineId];
-        machine.cpuPricePerSecond = cpuPricePerSecond;
-        machine.gpuPricePerSecond = gpuPricePerSecond;
-        machine.memoryPricePerSecond = memoryPricePerSecond;
-        machine.diskPricePerSecond = diskPricePerSecond;
-        machine.updatedAt = block.timestamp;
-        emit MachineResourcePriceUpdated(
+        Provider storage provider = providers[providerId];
+        provider.cpuPricePerSecond = cpuPricePerSecond;
+        provider.gpuPricePerSecond = gpuPricePerSecond;
+        provider.memoryPricePerSecond = memoryPricePerSecond;
+        provider.diskPricePerSecond = diskPricePerSecond;
+        provider.updatedAt = block.timestamp;
+        emit ResourcePriceUpdated(
             providerId,
-            machineId,
             cpuPricePerSecond,
             gpuPricePerSecond,
             memoryPricePerSecond,
@@ -774,21 +592,19 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
     }
 
     /**
-     * @dev Get price for a machine per resource
+     * @dev Get price per resource
      */
-    function getMachineResourcePrice(uint256 providerId, uint256 machineId) external view returns (
+    function getResourcePrice(address providerId) external view returns (
         uint256 cpuPricePerSecond,
         uint256 gpuPricePerSecond,
         uint256 memoryPricePerSecond,
         uint256 diskPricePerSecond
     ) {
-        require(machineId < providers[providerId].machineCount, "Invalid machine ID");
-        Machine storage machine = providerMachines[providerId][machineId];
         return (
-            machine.cpuPricePerSecond,
-            machine.gpuPricePerSecond,
-            machine.memoryPricePerSecond,
-            machine.diskPricePerSecond
+            providers[providerId].cpuPricePerSecond,
+            providers[providerId].gpuPricePerSecond,
+            providers[providerId].memoryPricePerSecond,
+            providers[providerId].diskPricePerSecond
         );
     }
 
@@ -797,13 +613,13 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      * @param providerId Provider ID
      * @param verified_ Verification status
      */
-    function setProviderVerified(uint256 providerId, bool verified_) external onlyOwner {
+    function setProviderVerified(address providerId, bool verified_) external onlyOwner {
         require(providers[providerId].registered, "Provider not registered");
         providers[providerId].verified = verified_;
         emit ProviderVerified(providerId, verified_);
     }
 
-    function isVerified(uint256 providerId) external view returns (bool) {
+    function isVerified(address providerId) external view returns (bool) {
         return providers[providerId].verified;
     }
 
@@ -812,75 +628,112 @@ contract SubnetProvider is Initializable, OwnableUpgradeable, ERC721URIStorageUp
      * @param providerId Provider ID
      * @param newReputation New reputation score
      */
-    function setProviderReputation(uint256 providerId, uint256 newReputation) external onlyOwner {
+    function setProviderReputation(address providerId, uint256 newReputation) external onlyOwner {
         require(providers[providerId].registered, "Provider not registered");
         require(newReputation <= 100, "Reputation cannot exceed 100");
         providers[providerId].reputation = newReputation;
         emit ProviderReputationUpdated(providerId, newReputation);
     }
 
-    function getProviderReputation(uint256 providerId) external view returns (uint256) {
+    function getProviderReputation(address providerId) external view returns (uint256) {
         return providers[providerId].reputation;
     }
 
     /**
-     * @dev Register a new provider and add a machine in a single transaction.
-     * @param operator Operator address for the provider.
-     * @param providerMetadata Metadata for the provider.
-     * @param machineType Type of virtualization.
-     * @param region Location information.
-     * @param cpuCores Number of CPU cores.
-     * @param gpuCores Number of GPU cores.
-     * @param gpuMemory GPU memory in MB.
-     * @param memoryMB RAM in MB.
-     * @param diskGB Storage in GB.
-     * @param uploadSpeed Upload speed in Mbps.
-     * @param downloadSpeed Download speed in Mbps.
-     * @param machineMetadata Additional metadata for the machine.
-     * @param cpuPricePerSecond CPU price per second.
-     * @param gpuPricePerSecond GPU price per second.
-     * @param memoryPricePerSecond Memory price per second.
-     * @param diskPricePerSecond Disk price per second.
-     * @return providerId The token ID of the minted provider NFT.
-     * @return machineId The ID of the newly added machine.
+     * @dev Authorize a locker (e.g., marketplace contract) to lock/unlock resources for all providers
+     * @param locker Address of the locker contract
+     * @param authorized Whether to authorize or revoke authorization
      */
-    function registerProviderWithMachine(
-        address operator,
-        string memory providerMetadata,
-        uint256 machineType,
-        uint256 region,
+    function setAuthorizedLocker(address locker, bool authorized) external onlyOwner {
+        require(locker != address(0), "Invalid locker address");
+        authorizedLockers[locker] = authorized;
+    }
+
+    /**
+     * @dev Lock resources for a provider (only authorized lockers can call)
+     * @param provider Provider address
+     * @param cpuCores CPU cores to lock
+     * @param gpuCores GPU cores to lock
+     * @param memoryMB Memory in MB to lock
+     * @param diskGB Disk in GB to lock
+     */
+    function lockResources(
+        address provider,
         uint256 cpuCores,
         uint256 gpuCores,
-        uint256 gpuMemory,
         uint256 memoryMB,
-        uint256 diskGB,
-        uint256 uploadSpeed,
-        uint256 downloadSpeed,
-        string memory machineMetadata,
-        uint256 cpuPricePerSecond,
-        uint256 gpuPricePerSecond,
-        uint256 memoryPricePerSecond,
-        uint256 diskPricePerSecond
-    ) external returns (uint256 providerId, uint256 machineId) {
-        providerId = _registerProvider(operator, providerMetadata);
-        machineId = _addMachine(
-            providerId,
-            machineType,
-            region,
-            cpuCores,
-            gpuCores,
-            gpuMemory,
-            memoryMB,
-            diskGB,
-            uploadSpeed,
-            downloadSpeed,
-            machineMetadata,
-            cpuPricePerSecond,
-            gpuPricePerSecond,
-            memoryPricePerSecond,
-            diskPricePerSecond
-        );
+        uint256 diskGB
+    ) external {
+        require(authorizedLockers[msg.sender], "Not authorized to lock resources");
+        require(providers[provider].registered, "Provider not registered");
+        require(providers[provider].isActive, "Provider not active");
+        
+        Provider memory p = providers[provider];
+        LockedResources storage locked = lockedResources[provider];
+        
+        // Check that provider has enough available resources
+        uint256 availableCpu = p.cpuCores >= locked.cpuCores ? p.cpuCores - locked.cpuCores : 0;
+        uint256 availableGpu = p.gpuCores >= locked.gpuCores ? p.gpuCores - locked.gpuCores : 0;
+        uint256 availableMemory = p.memoryMB >= locked.memoryMB ? p.memoryMB - locked.memoryMB : 0;
+        uint256 availableDisk = p.diskGB >= locked.diskGB ? p.diskGB - locked.diskGB : 0;
+        
+        require(availableCpu >= cpuCores, "Insufficient available CPU");
+        require(availableGpu >= gpuCores, "Insufficient available GPU");
+        require(availableMemory >= memoryMB, "Insufficient available memory");
+        require(availableDisk >= diskGB, "Insufficient available disk");
+        
+        // Lock the resources
+        locked.cpuCores += cpuCores;
+        locked.gpuCores += gpuCores;
+        locked.memoryMB += memoryMB;
+        locked.diskGB += diskGB;
+        
+        emit ResourcesLocked(provider, cpuCores, gpuCores, memoryMB, diskGB);
     }
+
+    /**
+     * @dev Unlock resources for a provider (only authorized lockers can call)
+     * @param provider Provider address
+     * @param cpuCores CPU cores to unlock
+     * @param gpuCores GPU cores to unlock
+     * @param memoryMB Memory in MB to unlock
+     * @param diskGB Disk in GB to unlock
+     */
+    function unlockResources(
+        address provider,
+        uint256 cpuCores,
+        uint256 gpuCores,
+        uint256 memoryMB,
+        uint256 diskGB
+    ) external {
+        require(authorizedLockers[msg.sender], "Not authorized to unlock resources");
+        
+        LockedResources storage locked = lockedResources[provider];
+        
+        // Ensure we don't unlock more than what's locked
+        require(locked.cpuCores >= cpuCores, "Cannot unlock more CPU than locked");
+        require(locked.gpuCores >= gpuCores, "Cannot unlock more GPU than locked");
+        require(locked.memoryMB >= memoryMB, "Cannot unlock more memory than locked");
+        require(locked.diskGB >= diskGB, "Cannot unlock more disk than locked");
+        
+        // Unlock the resources
+        locked.cpuCores -= cpuCores;
+        locked.gpuCores -= gpuCores;
+        locked.memoryMB -= memoryMB;
+        locked.diskGB -= diskGB;
+        
+        emit ResourcesUnlocked(provider, cpuCores, gpuCores, memoryMB, diskGB);
+    }
+
+    /**
+     * @dev Get locked resources for a provider
+     * @param provider Provider address
+     * @return LockedResources struct with locked amounts
+     */
+    function getLockedResources(address provider) external view returns (LockedResources memory) {
+        return lockedResources[provider];
+    }
+
 }
 
 

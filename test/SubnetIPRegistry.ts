@@ -31,22 +31,22 @@ describe("SubnetIPRegistry", function () {
         expect(await subnetIPRegistry.purchaseFee()).to.equal(purchaseFee);
     });
 
-    it("should allow purchasing an IP in the 10.x.x.x range", async function () {
+    it("should allow purchasing an IP in the 100.66.0.0/15 range", async function () {
         await expect(subnetIPRegistry.connect(user).purchase(user.address))
             .to.emit(subnetIPRegistry, "Transfer") // ERC721 Transfer event
-            .withArgs(ethers.ZeroAddress, user.address, 0x0A000001); // First IP: 10.0.0.1
+            .withArgs(ethers.ZeroAddress, user.address, 0x64420000); // First IP: 100.66.0.0
 
-        expect(await subnetIPRegistry.ownerOf(0x0A000001)).to.equal(user.address);
+        expect(await subnetIPRegistry.ownerOf(0x64420000)).to.equal(user.address);
     });
 
     it("should increment IPs automatically", async function () {
         // First purchase
         await subnetIPRegistry.connect(user).purchase(user.address);
-        expect(await subnetIPRegistry.ownerOf(0x0A000001)).to.equal(user.address);
+        expect(await subnetIPRegistry.ownerOf(0x64420000)).to.equal(user.address);
 
         // Second purchase
         await subnetIPRegistry.connect(user).purchase(user.address);
-        expect(await subnetIPRegistry.ownerOf(0x0A000002)).to.equal(user.address);
+        expect(await subnetIPRegistry.ownerOf(0x64420001)).to.equal(user.address);
     });
 
     it("should transfer the purchase fee to the treasury", async function () {
@@ -61,18 +61,18 @@ describe("SubnetIPRegistry", function () {
         const peerId = "peer1";
         await subnetIPRegistry.connect(user).purchase(user.address);
 
-        await expect(subnetIPRegistry.connect(user).bindPeer(0x0A000001, peerId))
+        await expect(subnetIPRegistry.connect(user).bindPeer(0x64420000, peerId))
             .to.emit(subnetIPRegistry, "PeerBound")
-            .withArgs(0x0A000001, peerId);
+            .withArgs(0x64420000, peerId);
 
-        expect(await subnetIPRegistry.getPeer(0x0A000001)).to.equal(peerId);
+        expect(await subnetIPRegistry.getPeer(0x64420000)).to.equal(peerId);
     });
 
     it("should reject binding a peer ID to an IP not owned by the caller", async function () {
         const peerId = "peer2";
         await subnetIPRegistry.connect(user).purchase(user.address);
 
-        await expect(subnetIPRegistry.connect(owner).bindPeer(0x0A000001, peerId))
+        await expect(subnetIPRegistry.connect(owner).bindPeer(0x64420000, peerId))
             .to.be.revertedWith("Not authorized");
     });
 
@@ -104,5 +104,20 @@ describe("SubnetIPRegistry", function () {
 
         await expect(subnetIPRegistry.connect(user).updatePurchaseFee(newPurchaseFee))
             .to.be.revertedWithCustomError(subnetIPRegistry, "OwnableUnauthorizedAccount");
+    });
+
+    it("should verify IP range validation for 100.66.0.0/15", async function () {
+        // Test that first IP in range is valid (100.66.0.0 = 0x64420000)
+        await subnetIPRegistry.connect(user).purchase(user.address);
+        expect(await subnetIPRegistry.ownerOf(0x64420000)).to.equal(user.address);
+        
+        // Test that IPs increment correctly within the range
+        await subnetIPRegistry.connect(user).purchase(user.address);
+        expect(await subnetIPRegistry.ownerOf(0x64420001)).to.equal(user.address);
+        
+        // The contract enforces range limit: nextIp must be >= 0x64420000 && <= 0x6443FFFF
+        // When nextIp exceeds 0x6443FFFF (100.67.255.255), purchase will revert with "IP range exceeded"
+        // Note: Testing the upper limit would require purchasing 131,072 IPs, which is impractical in unit tests
+        // The require statement in purchase() function ensures the range is enforced
     });
 });

@@ -47,16 +47,16 @@ contract SubnetIPRegistry is Initializable, ERC721Upgradeable, OwnableUpgradeabl
         treasury = _treasury; // Set the treasury address.
         purchaseFee = _purchaseFee; // Set the purchase fee.
 
-        // Initialize the next IP to start at 10.0.0.0 (0x0A000000).
-        nextIp = 0x0A000001;
+        // Initialize the next IP to start at 100.66.0.0 (0x64420000) - range 100.66.0.0/15
+        nextIp = 0x64420000;
     }
 
     // Allows a user to purchase an IP by minting a new token.
-    // Automatically assigns the next available IP in the 10.x.x.x range.
+    // Automatically assigns the next available IP in the 100.66.0.0/15 range (100.66.0.0 - 100.67.255.255).
     // @param to The address that will receive the minted token.
     function purchase(address to) external {
-        // Ensure the IP is within the 10.x.x.x range.
-        require((nextIp & 0xFF000000) == 0x0A000000, "IP range exceeded");
+        // Ensure the IP is within the 100.66.0.0/15 range (0x64420000 - 0x6443FFFF).
+        require(nextIp >= 0x64420000 && nextIp <= 0x6443FFFF, "IP range exceeded");
 
         // Transfer the purchase fee from the sender to the treasury using safeTransferFrom.
         paymentToken.safeTransferFrom(msg.sender, treasury, purchaseFee);
