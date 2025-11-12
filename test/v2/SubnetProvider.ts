@@ -33,20 +33,13 @@ describe("SubnetProvider", function () {
             expect(await subnetProvider.stakingToken()).to.equal(await stakingToken.getAddress());
         });
 
-        it("should allow owner to update stake parameters", async function() {
-            await subnetProvider.setStakeParameters(
-                ethers.parseEther("600"), // base stake
-                ethers.parseEther("120"), // cpu rate
-                ethers.parseEther("1200"), // gpu rate
-                ethers.parseEther("25"), // memory rate
-                ethers.parseEther("3") // disk rate
-            );
+        it("should allow owner to update stake configuration", async function() {
+            const newRatioBps = 15_000;
+            const newRevenueDays = 45;
+            await (subnetProvider as any).setStakeConfiguration(newRatioBps, newRevenueDays);
 
-            expect(await subnetProvider.baseStakeAmount()).to.equal(ethers.parseEther("600"));
-            expect(await subnetProvider.cpuStakeRate()).to.equal(ethers.parseEther("120"));
-            expect(await subnetProvider.gpuStakeRate()).to.equal(ethers.parseEther("1200"));
-            expect(await subnetProvider.memoryStakeRate()).to.equal(ethers.parseEther("25"));
-            expect(await subnetProvider.diskStakeRate()).to.equal(ethers.parseEther("3"));
+            expect(await (subnetProvider as any).stakeRevenueRatioBps()).to.equal(newRatioBps);
+            expect(await (subnetProvider as any).stakeRevenueDays()).to.equal(newRevenueDays);
         });
 
         it("should allow owner to update lock period", async function() {
@@ -57,13 +50,7 @@ describe("SubnetProvider", function () {
 
         it("should not allow non-owner to update parameters", async function() {
             await expect(
-                subnetProvider.connect(addr1).setStakeParameters(
-                    ethers.parseEther("600"),
-                    ethers.parseEther("120"),
-                    ethers.parseEther("1200"),
-                    ethers.parseEther("25"),
-                    ethers.parseEther("3")
-                )
+                (subnetProvider.connect(addr1) as any).setStakeConfiguration(12_000, 40)
             ).to.be.revertedWithCustomError(subnetProvider, "OwnableUnauthorizedAccount");
 
             await expect(
@@ -74,17 +61,16 @@ describe("SubnetProvider", function () {
 
     describe("Provider Management", function() {
         it("should register a new provider and store specs with stake", async function() {
-            const cpu = 4n, gpu = 1n, gpuMem = 8000n, memMB = 16n * 1024n, diskGB = 500n;
+            const cpu = 4n, gpu = 1n, memMB = 16n * 1024n, diskGB = 500n;
             const priceCpu = 1n, priceGpu = 2n, priceMem = 3n, priceDisk = 4n;
 
-            await subnetProvider.registerProvider(
+            await (subnetProvider as any).registerProvider(
                 operator.address,
                 "provider-metadata",
                 1, // machineType
                 2, // region
                 cpu,
                 gpu,
-                gpuMem,
                 memMB,
                 diskGB,
                 priceCpu,
@@ -136,20 +122,14 @@ describe("SubnetProvider", function () {
             const before = await subnetProvider.getProvider(owner.address);
 
             // Increase resources and prices
-            await subnetProvider.updateProviderSpecs(
+            await (subnetProvider as any).updateProviderSpecs(
                 owner.address,
-                1, // machineType
-                3, // region
+                1, // machineType (immutable)
+                2, // region (immutable)
                 8, // cpuCores
                 2, // gpuCores
-                16000, // gpuMemory
                 32 * 1024, // memoryMB
-                1000, // diskGB
-                "updated-metadata",
-                10, // cpuPrice
-                20, // gpuPrice
-                30, // memPrice
-                40  // diskPrice
+                1000 // diskGB
             );
 
             const after = await subnetProvider.getProvider(owner.address);
@@ -158,13 +138,16 @@ describe("SubnetProvider", function () {
             expect(after.memoryMB).to.equal(32 * 1024);
             expect(after.diskGB).to.equal(1000);
             expect(after.totalStaked).to.be.greaterThan(before.totalStaked);
+            expect(after.metadata).to.equal(before.metadata);
+            expect(after.machineType).to.equal(before.machineType);
+            expect(after.region).to.equal(before.region);
 
             // Downgrade should revert
             await expect(
-                subnetProvider.updateProviderSpecs(
-                    owner.address, 1, 3, 4, 1, 8000, 16 * 1024, 500, "meta", 1, 2, 3, 4
+                (subnetProvider as any).updateProviderSpecs(
+                    owner.address, 1, 2, 4, 1, 16 * 1024, 500
                 )
-            ).to.be.revertedWith("Cannot downgrade machine resources");
+            ).to.be.revertedWith("Cannot decrease CPU cores");
         });
 
         it("should deactivate and allow withdrawal after lock period", async function() {
@@ -186,11 +169,8 @@ describe("SubnetProvider", function () {
 
     describe("Stake Calculation and Slashing", function() {
         it("should calculate required stake including monthly revenue", async function() {
-            const base = await subnetProvider.baseStakeAmount();
-            const cpuRate = await subnetProvider.cpuStakeRate();
-            const gpuRate = await subnetProvider.gpuStakeRate();
-            const memRate = await subnetProvider.memoryStakeRate();
-            const diskRate = await subnetProvider.diskStakeRate();
+            const ratioBps = await (subnetProvider as any).stakeRevenueRatioBps();
+            const revenueDays = await (subnetProvider as any).stakeRevenueDays();
 
             const cpu = 4n, gpu = 1n, memMB = 16n * 1024n, diskGB = 500n;
             const priceCpu = 1n, priceGpu = 2n, priceMem = 3n, priceDisk = 4n;
@@ -199,11 +179,11 @@ describe("SubnetProvider", function () {
                 cpu, gpu, memMB, diskGB, priceCpu, priceGpu, priceMem, priceDisk
             );
 
-            const resourceStake = cpu * cpuRate + gpu * gpuRate + (memMB * memRate) / 1024n + diskGB * diskRate;
             const memoryGB = memMB / 1024n;
             const revenuePerSecond = cpu * priceCpu + gpu * priceGpu + memoryGB * priceMem + diskGB * priceDisk;
-            const monthlyRevenue = revenuePerSecond * 30n * 24n * 60n * 60n; // 30 days
-            const expected = base + resourceStake + monthlyRevenue;
+            const revenueSeconds = BigInt(revenueDays) * 24n * 60n * 60n;
+            const revenueStake = revenuePerSecond * revenueSeconds;
+            const expected = (revenueStake * ratioBps) / 10_000n;
             expect(stake).to.equal(expected);
         });
 
@@ -269,14 +249,13 @@ describe("SubnetProvider", function () {
 
     // Helper to register a default provider owned by `owner`
     async function registerDefaultProvider() {
-        await subnetProvider.registerProvider(
+        await (subnetProvider as any).registerProvider(
             operator.address,
             "provider-metadata",
             1,
             2,
             4,
             1,
-            8000,
             16 * 1024,
             500,
             1,

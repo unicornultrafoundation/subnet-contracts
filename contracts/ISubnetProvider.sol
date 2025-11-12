@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 interface ISubnetProvider {
+    // cpuPricePerSecond: Price per 1 CPU per second (not per mCPU)
     function getResourcePrice(address provider) external view returns (
         uint256 cpuPricePerSecond,
         uint256 gpuPricePerSecond,
@@ -9,6 +10,7 @@ interface ISubnetProvider {
         uint256 diskPricePerSecond
     );
     function isProviderActive(address provider) external view returns (bool);
+    // minCpuCores: Minimum mCPU (milliCPU) required: 1000 mCPU = 1 CPU
     function validateProviderRequirements(
         uint256 machineType,
         address provider,
@@ -20,6 +22,7 @@ interface ISubnetProvider {
     function isProviderOperatorOrOwner(address provider, address account) external view returns (bool);
     function getProviderOwner(address provider) external view returns (address);
     function setAuthorizedLocker(address locker, bool authorized) external;
+    // cpuCores: mCPU (milliCPU) to lock/unlock: 1000 mCPU = 1 CPU
     function lockResources(address provider, uint256 cpuCores, uint256 gpuCores, uint256 memoryMB, uint256 diskGB) external;
     function unlockResources(address provider, uint256 cpuCores, uint256 gpuCores, uint256 memoryMB, uint256 diskGB) external;
     function getAvailableResources(address provider) external view returns (

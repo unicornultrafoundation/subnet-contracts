@@ -36,8 +36,8 @@ describe("SubnetFixedPriceMarketplace", function () {
         await provider.setAuthorizedLocker(await marketplace.getAddress(), true);
 
         // Register providers
-        await registerProvider(provider1, 4, 1, 8000, 16 * 1024, 500);
-        await registerProvider(provider2, 8, 2, 16000, 32 * 1024, 1000);
+        await registerProvider(provider1, 4, 1, 16 * 1024, 500);
+        await registerProvider(provider2, 8, 2, 32 * 1024, 1000);
 
         // Approve payment tokens for client
         await paymentToken.connect(client1).approve(await marketplace.getAddress(), ethers.parseEther("10000000"));
@@ -47,20 +47,18 @@ describe("SubnetFixedPriceMarketplace", function () {
         signer: HardhatEthersSigner,
         cpu: number,
         gpu: number,
-        gpuMem: number,
         memMB: number,
         diskGB: number
     ) {
         await paymentToken.connect(signer).mint(signer.address, ethers.parseEther("10000000"));
         await paymentToken.connect(signer).approve(await provider.getAddress(), ethers.parseEther("10000000"));
-        await provider.connect(signer).registerProvider(
+        await (provider.connect(signer) as any).registerProvider(
             signer.address,
             "provider-metadata",
             1, // machineType
             2, // region
             cpu,
             gpu,
-            gpuMem,
             memMB,
             diskGB,
             1, // cpuPricePerSecond
@@ -80,14 +78,13 @@ describe("SubnetFixedPriceMarketplace", function () {
 
     describe("Order Creation", function() {
         it("should create a fixed price order", async function() {
-            const tx = await marketplace.connect(client1).createOrder(
+            const tx = await (marketplace.connect(client1) as any).createOrder(
                 1, // machineType
                 3600, // duration (1 hour)
                 ethers.parseEther("10"), // fixedPricePerSecond
                 2, // region
                 4, // cpuCores
                 1, // gpuCores
-                8000, // gpuMemory
                 16 * 1024, // memoryMB
                 500, // diskGB
                 "test-specs"
@@ -104,8 +101,8 @@ describe("SubnetFixedPriceMarketplace", function () {
 
     describe("Provider Acceptance", function() {
         beforeEach(async function() {
-            await marketplace.connect(client1).createOrder(
-                1, 3600, ethers.parseEther("10"), 2, 4, 1, 8000, 16 * 1024, 500, "specs"
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs"
             );
         });
 
@@ -142,8 +139,8 @@ describe("SubnetFixedPriceMarketplace", function () {
 
         it("should reject if provider does not meet requirements", async function() {
             // Create order with higher requirements
-            await marketplace.connect(client1).createOrder(
-                1, 3600, ethers.parseEther("10"), 2, 100, 100, 8000, 16 * 1024, 500, "specs"
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 100, 100, 16 * 1024, 500, "specs"
             );
             
             await expect(
@@ -154,8 +151,8 @@ describe("SubnetFixedPriceMarketplace", function () {
 
     describe("Payment Claiming", function() {
         beforeEach(async function() {
-            await marketplace.connect(client1).createOrder(
-                1, 3600, ethers.parseEther("10"), 2, 4, 1, 8000, 16 * 1024, 500, "specs"
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs"
             );
             await marketplace.connect(provider1).acceptOrderByProvider(1);
             
@@ -192,8 +189,8 @@ describe("SubnetFixedPriceMarketplace", function () {
 
     describe("Closing Acceptance", function() {
         beforeEach(async function() {
-            await marketplace.connect(client1).createOrder(
-                1, 3600, ethers.parseEther("10"), 2, 4, 1, 8000, 16 * 1024, 500, "specs"
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs"
             );
             await marketplace.connect(provider1).acceptOrderByProvider(1);
             await paymentToken.connect(client1).approve(await marketplace.getAddress(), ethers.parseEther("10000000"));
@@ -229,8 +226,8 @@ describe("SubnetFixedPriceMarketplace", function () {
 
     describe("Order Cancellation", function() {
         beforeEach(async function() {
-            await marketplace.connect(client1).createOrder(
-                1, 3600, ethers.parseEther("10"), 2, 4, 1, 8000, 16 * 1024, 500, "specs"
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs"
             );
         });
 

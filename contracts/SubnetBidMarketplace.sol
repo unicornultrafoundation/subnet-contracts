@@ -27,7 +27,6 @@ contract SubnetBidMarketplace is BaseMarketplace {
         address paymentToken;
         uint256 cpuCores;
         uint256 gpuCores;
-        uint256 gpuMemory;
         uint256 memoryMB;
         uint256 diskGB;
         uint256 region;
@@ -83,7 +82,6 @@ contract SubnetBidMarketplace is BaseMarketplace {
         uint256 region,
         uint256 cpuCores,
         uint256 gpuCores,
-        uint256 gpuMemory,
         uint256 memoryMB,
         uint256 diskGB,
         string memory specs
@@ -110,7 +108,6 @@ contract SubnetBidMarketplace is BaseMarketplace {
             lastPaidAt: 0,
             cpuCores: cpuCores,
             gpuCores: gpuCores,
-            gpuMemory: gpuMemory,
             memoryMB: memoryMB,
             diskGB: diskGB,
             region: region

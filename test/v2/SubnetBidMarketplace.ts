@@ -38,8 +38,8 @@ describe("SubnetBidMarketplace", function () {
         await provider.setAuthorizedLocker(await marketplace.getAddress(), true);
 
         // Register providers
-        await registerProvider(provider1, 4, 1, 8000, 16 * 1024, 500, 1, 2, 3, 4);
-        await registerProvider(provider2, 8, 2, 16000, 32 * 1024, 1000, 2, 4, 6, 8);
+        await registerProvider(provider1, 4, 1, 16 * 1024, 500, 1, 2, 3, 4);
+        await registerProvider(provider2, 8, 2, 32 * 1024, 1000, 2, 4, 6, 8);
 
         // Approve payment tokens
         await paymentToken.connect(client1).approve(await marketplace.getAddress(), ethers.parseEther("10000000"));
@@ -50,7 +50,6 @@ describe("SubnetBidMarketplace", function () {
         signer: HardhatEthersSigner,
         cpu: number,
         gpu: number,
-        gpuMem: number,
         memMB: number,
         diskGB: number,
         cpuPrice: number,
@@ -60,14 +59,13 @@ describe("SubnetBidMarketplace", function () {
     ) {
         await paymentToken.connect(signer).mint(signer.address, ethers.parseEther("10000000"));
         await paymentToken.connect(signer).approve(await provider.getAddress(), ethers.parseEther("10000000"));
-        await provider.connect(signer).registerProvider(
+        await (provider.connect(signer) as any).registerProvider(
             signer.address,
             "provider-metadata",
             1, // machineType
             2, // region
             cpu,
             gpu,
-            gpuMem,
             memMB,
             diskGB,
             cpuPrice,
@@ -93,7 +91,7 @@ describe("SubnetBidMarketplace", function () {
 
     describe("Order Creation and Bidding", function() {
         it("should create a bidding order", async function() {
-            const tx = await marketplace.connect(client1).createOrder(
+            const tx = await (marketplace.connect(client1) as any).createOrder(
                 1, // machineType
                 3600, // duration (1 hour)
                 ethers.parseEther("1"), // minBidPrice
@@ -101,7 +99,6 @@ describe("SubnetBidMarketplace", function () {
                 2, // region
                 4, // cpuCores
                 1, // gpuCores
-                8000, // gpuMemory
                 16 * 1024, // memoryMB
                 500, // diskGB
                 "test-specs"
@@ -112,7 +109,7 @@ describe("SubnetBidMarketplace", function () {
         });
 
         it("should allow provider to submit bid", async function() {
-            await marketplace.connect(client1).createOrder(1, 3600, ethers.parseEther("1"), ethers.parseEther("10"), 2, 4, 1, 8000, 16 * 1024, 500, "specs");
+            await (marketplace.connect(client1) as any).createOrder(1, 3600, ethers.parseEther("1"), ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs");
             
             await marketplace.connect(provider1).submitBid(1, ethers.parseEther("5"), provider1.address);
             
@@ -123,7 +120,7 @@ describe("SubnetBidMarketplace", function () {
         });
 
         it("should reject bid if price out of range", async function() {
-            await marketplace.connect(client1).createOrder(1, 3600, ethers.parseEther("1"), ethers.parseEther("10"), 2, 4, 1, 8000, 16 * 1024, 500, "specs");
+            await (marketplace.connect(client1) as any).createOrder(1, 3600, ethers.parseEther("1"), ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs");
             
             await expect(
                 marketplace.connect(provider1).submitBid(1, ethers.parseEther("0.5"), provider1.address)
@@ -135,7 +132,7 @@ describe("SubnetBidMarketplace", function () {
         });
 
         it("should allow order owner to accept bid", async function() {
-            await marketplace.connect(client1).createOrder(1, 3600, ethers.parseEther("1"), ethers.parseEther("10"), 2, 4, 1, 8000, 16 * 1024, 500, "specs");
+            await (marketplace.connect(client1) as any).createOrder(1, 3600, ethers.parseEther("1"), ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs");
             await marketplace.connect(provider1).submitBid(1, ethers.parseEther("5"), provider1.address);
             
             await marketplace.connect(client1).acceptBid(1, 0);
@@ -148,7 +145,7 @@ describe("SubnetBidMarketplace", function () {
 
     describe("Payment and Closing", function() {
         beforeEach(async function() {
-            await marketplace.connect(client1).createOrder(1, 3600, ethers.parseEther("1"), ethers.parseEther("10"), 2, 4, 1, 8000, 16 * 1024, 500, "specs");
+            await (marketplace.connect(client1) as any).createOrder(1, 3600, ethers.parseEther("1"), ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs");
             await marketplace.connect(provider1).submitBid(1, ethers.parseEther("5"), provider1.address);
             await marketplace.connect(client1).acceptBid(1, 0);
         });
@@ -179,7 +176,7 @@ describe("SubnetBidMarketplace", function () {
 
     describe("Order Extension", function() {
         beforeEach(async function() {
-            await marketplace.connect(client1).createOrder(1, 3600, ethers.parseEther("1"), ethers.parseEther("10"), 2, 4, 1, 8000, 16 * 1024, 500, "specs");
+            await (marketplace.connect(client1) as any).createOrder(1, 3600, ethers.parseEther("1"), ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs");
             await marketplace.connect(provider1).submitBid(1, ethers.parseEther("5"), provider1.address);
             await marketplace.connect(client1).acceptBid(1, 0);
         });

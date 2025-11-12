@@ -35,13 +35,12 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
         // Unified "machine" specifications for this provider
         uint256 machineType;
         uint256 region;
-        uint256 cpuCores;
+        uint256 cpuCores; // mCPU (milliCPU): 1000 mCPU = 1 CPU
         uint256 gpuCores;
-        uint256 gpuMemory;
         uint256 memoryMB;
         uint256 diskGB;
         // Pricing (per second)
-        uint256 cpuPricePerSecond;
+        uint256 cpuPricePerSecond; // Price per 1 CPU (not mCPU)
         uint256 gpuPricePerSecond;
         uint256 memoryPricePerSecond;
         uint256 diskPricePerSecond;
@@ -57,18 +56,14 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
 
     // Staking related variables
     address public stakingToken;
-    uint256 public baseStakeAmount;      // Base amount for any machine
     uint256 public totalSlashed;         // Total amount slashed
-    
-    // Resource stake rates
-    uint256 public cpuStakeRate;         // Tokens per CPU core
-    uint256 public gpuStakeRate;         // Tokens per GPU core
-    uint256 public memoryStakeRate;      // Tokens per GB of memory
-    uint256 public diskStakeRate;        // Tokens per GB of disk
+    uint256 public stakeRevenueRatioBps; // Ratio of revenue to stake (basis points)
+    uint256 public stakeRevenueDays;     // Number of days of revenue to stake against
+    uint256 private constant BPS_DENOMINATOR = 10_000;
 
     // Resource locking for orders
     struct LockedResources {
-        uint256 cpuCores;
+        uint256 cpuCores; // mCPU (milliCPU): 1000 mCPU = 1 CPU
         uint256 gpuCores;
         uint256 memoryMB;
         uint256 diskGB;
@@ -84,12 +79,9 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
     event StakeSlashed(address indexed provider, uint256 amount, string reason);
     event StakeWithdrawn(address indexed provider, uint256 amount);
     event LockPeriodUpdated(uint256 oldPeriod, uint256 newPeriod);
-    event StakeParametersUpdated(
-        uint256 baseAmount, 
-        uint256 cpuRate, 
-        uint256 gpuRate, 
-        uint256 memoryRate, 
-        uint256 diskRate
+    event StakeConfigurationUpdated(
+        uint256 revenueRatioBps,
+        uint256 revenueDays
     );
     event ResourcePriceUpdated(
         address indexed provider,
@@ -100,8 +92,8 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
     );
     event ProviderVerified(address indexed providerId, bool verified);
     event ProviderReputationUpdated(address indexed providerId, uint256 newReputation);
-    event ResourcesLocked(address indexed provider, uint256 cpuCores, uint256 gpuCores, uint256 memoryMB, uint256 diskGB);
-    event ResourcesUnlocked(address indexed provider, uint256 cpuCores, uint256 gpuCores, uint256 memoryMB, uint256 diskGB);
+    event ResourcesLocked(address indexed provider, uint256 cpuCores, uint256 gpuCores, uint256 memoryMB, uint256 diskGB); // cpuCores is mCPU
+    event ResourcesUnlocked(address indexed provider, uint256 cpuCores, uint256 gpuCores, uint256 memoryMB, uint256 diskGB); // cpuCores is mCPU
 
     /**
      * @dev Initialize the contract
@@ -111,44 +103,24 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
         
         stakingToken = _stakingToken;
         
-        // Set default stake parameters with more accurate resource pricing
-        baseStakeAmount = 500 * 10**18;  // Base stake for participating (500 tokens)
-        cpuStakeRate = 100 * 10**18;     // 100 tokens per CPU core
-        gpuStakeRate = 1000 * 10**18;    // 1000 tokens per GPU core (premium resource)
-        memoryStakeRate = 20 * 10**18;   // 20 tokens per GB of RAM
-        diskStakeRate = 2 * 10**18;      // 2 tokens per GB of disk
+        // Set default stake parameters
+        stakeRevenueRatioBps = BPS_DENOMINATOR; // 100% of revenue
+        stakeRevenueDays = 30; // 30 days of revenue
         
         lockPeriod = 3 weeks; // Default 3 weeks lock period
     }
 
     /**
-     * @dev Update stake parameters (owner only)
-     * @param newBaseStakeAmount New base stake amount
-     * @param newCpuStakeRate New CPU stake rate (tokens per core)
-     * @param newGpuStakeRate New GPU stake rate (tokens per core)
-     * @param newMemoryStakeRate New memory stake rate (tokens per GB)
-     * @param newDiskStakeRate New disk stake rate (tokens per GB)
+     * @dev Update stake configuration (owner only)
+     * @param newRevenueRatioBps Ratio (in basis points) of revenue to require as stake
+     * @param newRevenueDays Number of days of revenue to include in stake calculation
      */
-    function setStakeParameters(
-        uint256 newBaseStakeAmount,
-        uint256 newCpuStakeRate,
-        uint256 newGpuStakeRate,
-        uint256 newMemoryStakeRate,
-        uint256 newDiskStakeRate
-    ) external onlyOwner {
-        baseStakeAmount = newBaseStakeAmount;
-        cpuStakeRate = newCpuStakeRate;
-        gpuStakeRate = newGpuStakeRate;
-        memoryStakeRate = newMemoryStakeRate;
-        diskStakeRate = newDiskStakeRate;
-        
-        emit StakeParametersUpdated(
-            newBaseStakeAmount,
-            newCpuStakeRate,
-            newGpuStakeRate,
-            newMemoryStakeRate,
-            newDiskStakeRate
-        );
+    function setStakeConfiguration(uint256 newRevenueRatioBps, uint256 newRevenueDays) external onlyOwner {
+        require(newRevenueRatioBps > 0, "Stake ratio must be positive");
+        require(newRevenueDays > 0, "Stake revenue days must be positive");
+        stakeRevenueRatioBps = newRevenueRatioBps;
+        stakeRevenueDays = newRevenueDays;
+        emit StakeConfigurationUpdated(newRevenueRatioBps, newRevenueDays);
     }
 
     /**
@@ -163,13 +135,12 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
     }
 
     /**
-     * @dev Calculate required stake based on resources and pricing.
-     *      Requirement: at least stake the estimated 1-month revenue.
-     * @param cpuCores Number of CPU cores
+     * @dev Calculate required stake based on resources and pricing configuration.
+     * @param cpuCores Number of mCPU (milliCPU): 1000 mCPU = 1 CPU
      * @param gpuCores Number of GPU cores
      * @param memoryMB Memory in MB
      * @param diskGB Storage in GB
-     * @param cpuPricePerSecond CPU price per second
+     * @param cpuPricePerSecond Price per 1 CPU per second (not per mCPU)
      * @param gpuPricePerSecond GPU price per second
      * @param memoryPricePerSecond Memory price per second
      * @param diskPricePerSecond Disk price per second
@@ -184,24 +155,20 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
         uint256 memoryPricePerSecond,
         uint256 diskPricePerSecond
     ) public view returns (uint256) {
-        // Stake floor from resource configuration
-        uint256 cpuStake = cpuCores * cpuStakeRate;
-        uint256 gpuStake = gpuCores * gpuStakeRate;
-        uint256 memoryStake = (memoryMB * memoryStakeRate) / 1024; // Convert MB to GB
-        uint256 diskStake = diskGB * diskStakeRate;
-        uint256 resourceStake = cpuStake + gpuStake + memoryStake + diskStake;
-
         // Estimated revenue per second from pricing
-        uint256 memoryGB = memoryMB / 1024;
-        uint256 revenuePerSecond = (cpuCores * cpuPricePerSecond)
+        // Calculate CPU revenue: (mCPU * price per CPU) / 1000 to avoid precision loss
+        // Example: 500 mCPU * 10 tokens/CPU = 5000 / 1000 = 5 tokens (correct for half CPU)
+        // Calculate Memory revenue: (MB * price per GB) / 1024 to avoid precision loss
+        // Example: 500 MB * 20 tokens/GB = 10000 / 1024 = 9.76... tokens (correct for 500MB)
+        uint256 revenuePerSecond = (cpuCores * cpuPricePerSecond) / 1000
             + (gpuCores * gpuPricePerSecond)
-            + (memoryGB * memoryPricePerSecond)
+            + (memoryMB * memoryPricePerSecond) / 1024
             + (diskGB * diskPricePerSecond);
         
-        // Require at least one month of revenue as stake
-        uint256 monthlyRevenueStake = revenuePerSecond * 30 days;
+        uint256 secondsInPeriod = stakeRevenueDays * 1 days;
+        uint256 revenueStake = revenuePerSecond * secondsInPeriod;
 
-        return baseStakeAmount + resourceStake + monthlyRevenueStake;
+        return (revenueStake * stakeRevenueRatioBps) / BPS_DENOMINATOR;
     }
 
     /**
@@ -211,12 +178,11 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
      * @param metadata Provider metadata
      * @param machineType Type of virtualization
      * @param region Location information
-     * @param cpuCores Number of CPU cores
+     * @param cpuCores Number of mCPU (milliCPU): 1000 mCPU = 1 CPU
      * @param gpuCores Number of GPU cores
-     * @param gpuMemory GPU memory in MB
      * @param memoryMB RAM in MB
      * @param diskGB Storage in GB
-     * @param cpuPricePerSecond CPU price per second
+     * @param cpuPricePerSecond Price per 1 CPU per second (not per mCPU)
      * @param gpuPricePerSecond GPU price per second
      * @param memoryPricePerSecond Memory price per second
      * @param diskPricePerSecond Disk price per second
@@ -229,7 +195,6 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
         uint256 region,
         uint256 cpuCores,
         uint256 gpuCores,
-        uint256 gpuMemory,
         uint256 memoryMB,
         uint256 diskGB,
         uint256 cpuPricePerSecond,
@@ -268,7 +233,6 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
             region: region,
             cpuCores: cpuCores,
             gpuCores: gpuCores,
-            gpuMemory: gpuMemory,
             memoryMB: memoryMB,
             diskGB: diskGB,
             cpuPricePerSecond: cpuPricePerSecond,
@@ -304,6 +268,13 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
 
     /**
      * @dev Update provider specs (may require additional stake; disallow downgrades)
+     * @param provider Provider address
+     * @param machineType Machine type (immutable)
+     * @param region Region (immutable)
+     * @param cpuCores Number of mCPU (milliCPU): 1000 mCPU = 1 CPU
+     * @param gpuCores Number of GPU cores
+     * @param memoryMB RAM in MB
+     * @param diskGB Storage in GB
      */
     function updateProviderSpecs(
         address provider,
@@ -311,20 +282,20 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
         uint256 region,
         uint256 cpuCores,
         uint256 gpuCores,
-        uint256 gpuMemory,
         uint256 memoryMB,
-        uint256 diskGB,
-        string memory metadata,
-        uint256 cpuPricePerSecond,
-        uint256 gpuPricePerSecond,
-        uint256 memoryPricePerSecond,
-        uint256 diskPricePerSecond
+        uint256 diskGB
     ) external {
         require(providers[provider].registered, "Provider not registered");
         require(!providers[provider].isSlashed, "Provider is slashed");
         Provider storage p = providers[provider];
         require(provider == msg.sender, "Only owner can update specs");
         require(p.isActive, "Provider not active");
+        require(machineType == p.machineType, "Machine type immutable");
+        require(region == p.region, "Region immutable");
+        require(cpuCores >= p.cpuCores, "Cannot decrease mCPU");
+        require(gpuCores >= p.gpuCores, "Cannot decrease GPU cores");
+        require(memoryMB >= p.memoryMB, "Cannot decrease memory");
+        require(diskGB >= p.diskGB, "Cannot decrease disk size");
 
         // Calculate new required stake
         uint256 newRequiredStake = calculateRequiredStake(
@@ -332,37 +303,29 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
             gpuCores, 
             memoryMB,
             diskGB,
-            cpuPricePerSecond,
-            gpuPricePerSecond,
-            memoryPricePerSecond,
-            diskPricePerSecond
+            p.cpuPricePerSecond,
+            p.gpuPricePerSecond,
+            p.memoryPricePerSecond,
+            p.diskPricePerSecond
         );
         uint256 currentStake = p.stakeAmount;
         
-        // Only allow updates that maintain or increase resources/stake
-        require(newRequiredStake >= currentStake, "Cannot downgrade machine resources");
-        
-        uint256 additionalStake = newRequiredStake - currentStake;
-        if (additionalStake > 0) {
+        uint256 additionalStake = 0;
+        if (newRequiredStake > currentStake) {
+            additionalStake = newRequiredStake - currentStake;
             IERC20(stakingToken).safeTransferFrom(msg.sender, address(this), additionalStake);
             p.totalStaked += additionalStake;
+            p.stakeAmount = newRequiredStake;
+        } else {
+            additionalStake = 0;
         }
         
-        // Update specs and pricing
-        p.machineType = machineType;
-        p.region = region;
+        // Update specs
         p.cpuCores = cpuCores;
         p.gpuCores = gpuCores;
-        p.gpuMemory = gpuMemory;
         p.memoryMB = memoryMB;
         p.diskGB = diskGB;
-        p.metadata = metadata;
-        p.cpuPricePerSecond = cpuPricePerSecond;
-        p.gpuPricePerSecond = gpuPricePerSecond;
-        p.memoryPricePerSecond = memoryPricePerSecond;
-        p.diskPricePerSecond = diskPricePerSecond;
         p.updatedAt = block.timestamp;
-        p.stakeAmount = newRequiredStake;
         
         emit ProviderSpecsUpdated(provider, additionalStake);
     }
@@ -511,7 +474,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
      * @dev Validate if a provider meets minimum requirements (checking available resources)
      * @param machineType Type of the machine
      * @param providerId ID of the provider
-     * @param minCpuCores Minimum CPU cores required
+     * @param minCpuCores Minimum mCPU (milliCPU) required: 1000 mCPU = 1 CPU
      * @param minMemoryMB Minimum memory required
      * @param minDiskGB Minimum disk space required
      * @param minGpuCores Minimum GPU cores required
@@ -568,6 +531,11 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
 
     /**
      * @dev Update price per resource (provider owner or operator only)
+     * @param providerId Provider address
+     * @param cpuPricePerSecond Price per 1 CPU per second (not per mCPU)
+     * @param gpuPricePerSecond GPU price per second
+     * @param memoryPricePerSecond Memory price per second
+     * @param diskPricePerSecond Disk price per second
      */
     function setResourcePrice(
         address providerId,
@@ -593,6 +561,11 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
 
     /**
      * @dev Get price per resource
+     * @param providerId Provider address
+     * @return cpuPricePerSecond Price per 1 CPU per second (not per mCPU)
+     * @return gpuPricePerSecond GPU price per second
+     * @return memoryPricePerSecond Memory price per second
+     * @return diskPricePerSecond Disk price per second
      */
     function getResourcePrice(address providerId) external view returns (
         uint256 cpuPricePerSecond,
@@ -652,7 +625,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
     /**
      * @dev Lock resources for a provider (only authorized lockers can call)
      * @param provider Provider address
-     * @param cpuCores CPU cores to lock
+     * @param cpuCores mCPU (milliCPU) to lock: 1000 mCPU = 1 CPU
      * @param gpuCores GPU cores to lock
      * @param memoryMB Memory in MB to lock
      * @param diskGB Disk in GB to lock
@@ -677,7 +650,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
         uint256 availableMemory = p.memoryMB >= locked.memoryMB ? p.memoryMB - locked.memoryMB : 0;
         uint256 availableDisk = p.diskGB >= locked.diskGB ? p.diskGB - locked.diskGB : 0;
         
-        require(availableCpu >= cpuCores, "Insufficient available CPU");
+        require(availableCpu >= cpuCores, "Insufficient available mCPU");
         require(availableGpu >= gpuCores, "Insufficient available GPU");
         require(availableMemory >= memoryMB, "Insufficient available memory");
         require(availableDisk >= diskGB, "Insufficient available disk");
@@ -694,7 +667,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
     /**
      * @dev Unlock resources for a provider (only authorized lockers can call)
      * @param provider Provider address
-     * @param cpuCores CPU cores to unlock
+     * @param cpuCores mCPU (milliCPU) to unlock: 1000 mCPU = 1 CPU
      * @param gpuCores GPU cores to unlock
      * @param memoryMB Memory in MB to unlock
      * @param diskGB Disk in GB to unlock
@@ -711,7 +684,7 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
         LockedResources storage locked = lockedResources[provider];
         
         // Ensure we don't unlock more than what's locked
-        require(locked.cpuCores >= cpuCores, "Cannot unlock more CPU than locked");
+        require(locked.cpuCores >= cpuCores, "Cannot unlock more mCPU than locked");
         require(locked.gpuCores >= gpuCores, "Cannot unlock more GPU than locked");
         require(locked.memoryMB >= memoryMB, "Cannot unlock more memory than locked");
         require(locked.diskGB >= diskGB, "Cannot unlock more disk than locked");

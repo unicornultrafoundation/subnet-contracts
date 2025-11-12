@@ -37,14 +37,13 @@ describe("SubnetDirectProviderMarketplace", function () {
         // Register provider
         await paymentToken.connect(provider1).mint(provider1.address, ethers.parseEther("10000000"));
         await paymentToken.connect(provider1).approve(await provider.getAddress(), ethers.parseEther("10000000"));
-        await provider.connect(provider1).registerProvider(
+        await (provider.connect(provider1) as any).registerProvider(
             provider1.address,
             "provider-metadata",
             1, // machineType
             2, // region
             4, // cpuCores
             1, // gpuCores
-            8000, // gpuMemory
             16 * 1024, // memoryMB
             500, // diskGB
             1, // cpuPricePerSecond
@@ -70,14 +69,13 @@ describe("SubnetDirectProviderMarketplace", function () {
             // Calculate expected price: 4*1 + 1*2 + (16*1024/1024)*3 + 500*4 = 4 + 2 + 48 + 2000 = 2054
             const maxPrice = ethers.parseEther("3000"); // Higher than actual price
             
-            const tx = await marketplace.connect(client1).createOrder(
+            const tx = await (marketplace.connect(client1) as any).createOrder(
                 1, // machineType
                 3600, // duration (1 hour)
                 maxPrice,
                 2, // region
                 4, // cpuCores
                 1, // gpuCores
-                8000, // gpuMemory
                 16 * 1024, // memoryMB
                 500, // diskGB
                 "test-specs",
@@ -98,8 +96,8 @@ describe("SubnetDirectProviderMarketplace", function () {
             const maxPrice = 1000; // Lower than actual price (2054 wei)
             
             await expect(
-                marketplace.connect(client1).createOrder(
-                    1, 3600, maxPrice, 2, 4, 1, 8000, 16 * 1024, 500, "specs", provider1.address
+                (marketplace.connect(client1) as any).createOrder(
+                    1, 3600, maxPrice, 2, 4, 1, 16 * 1024, 500, "specs", provider1.address
                 )
             ).to.be.revertedWith("Provider price exceeds maximum");
         });
@@ -108,8 +106,8 @@ describe("SubnetDirectProviderMarketplace", function () {
             const maxPrice = ethers.parseEther("10000");
             
             await expect(
-                marketplace.connect(client1).createOrder(
-                    1, 3600, maxPrice, 2, 100, 100, 8000, 16 * 1024, 500, "specs", provider1.address
+                (marketplace.connect(client1) as any).createOrder(
+                    1, 3600, maxPrice, 2, 100, 100, 16 * 1024, 500, "specs", provider1.address
                 )
             ).to.be.revertedWith("Provider does not meet requirements");
         });
@@ -118,8 +116,8 @@ describe("SubnetDirectProviderMarketplace", function () {
     describe("Payment and Closing", function() {
         beforeEach(async function() {
             const maxPrice = ethers.parseEther("10000");
-            await marketplace.connect(client1).createOrder(
-                1, 3600, maxPrice, 2, 4, 1, 8000, 16 * 1024, 500, "specs", provider1.address
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, maxPrice, 2, 4, 1, 16 * 1024, 500, "specs", provider1.address
             );
         });
 
@@ -149,8 +147,8 @@ describe("SubnetDirectProviderMarketplace", function () {
     describe("Order Extension", function() {
         beforeEach(async function() {
             const maxPrice = ethers.parseEther("10000");
-            await marketplace.connect(client1).createOrder(
-                1, 3600, maxPrice, 2, 4, 1, 8000, 16 * 1024, 500, "specs", provider1.address
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, maxPrice, 2, 4, 1, 16 * 1024, 500, "specs", provider1.address
             );
         });
 

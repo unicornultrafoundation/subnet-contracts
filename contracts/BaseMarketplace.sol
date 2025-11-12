@@ -24,9 +24,8 @@ abstract contract BaseMarketplace is Initializable, OwnableUpgradeable {
         uint256 createdAt;
         uint256 duration;
         address paymentToken;
-        uint256 cpuCores;
+        uint256 cpuCores; // mCPU (milliCPU): 1000 mCPU = 1 CPU
         uint256 gpuCores;
-        uint256 gpuMemory;
         uint256 memoryMB;
         uint256 diskGB;
         uint256 region;

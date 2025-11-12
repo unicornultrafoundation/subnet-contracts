@@ -24,7 +24,6 @@ contract SubnetDirectProviderMarketplace is BaseMarketplace {
         address paymentToken;
         uint256 cpuCores;
         uint256 gpuCores;
-        uint256 gpuMemory;
         uint256 memoryMB;
         uint256 diskGB;
         uint256 region;
@@ -58,7 +57,6 @@ contract SubnetDirectProviderMarketplace is BaseMarketplace {
         uint256 region,
         uint256 cpuCores,
         uint256 gpuCores,
-        uint256 gpuMemory,
         uint256 memoryMB,
         uint256 diskGB,
         string memory specs,
@@ -88,10 +86,13 @@ contract SubnetDirectProviderMarketplace is BaseMarketplace {
             providerContract.getResourcePrice(targetProvider);
         
         // Calculate total price per second
-        uint256 memoryGB = memoryMB / 1024;
-        uint256 totalPricePerSecond = (cpuCores * cpuPrice) + 
+        // Calculate CPU price: (mCPU * price per CPU) / 1000 to avoid precision loss
+        // Example: 500 mCPU * 10 tokens/CPU = 5000 / 1000 = 5 tokens (correct for half CPU)
+        // Calculate Memory price: (MB * price per GB) / 1024 to avoid precision loss
+        // Example: 500 MB * 20 tokens/GB = 10000 / 1024 = 9.76... tokens (correct for 500MB)
+        uint256 totalPricePerSecond = (cpuCores * cpuPrice) / 1000 + 
                                      (gpuCores * gpuPrice) + 
-                                     (memoryGB * memPrice) + 
+                                     (memoryMB * memPrice) / 1024 + 
                                      (diskGB * diskPrice);
         
         require(totalPricePerSecond <= maxPrice, "Provider price exceeds maximum");
@@ -123,7 +124,6 @@ contract SubnetDirectProviderMarketplace is BaseMarketplace {
             lastPaidAt: block.timestamp,
             cpuCores: cpuCores,
             gpuCores: gpuCores,
-            gpuMemory: gpuMemory,
             memoryMB: memoryMB,
             diskGB: diskGB,
             region: region
