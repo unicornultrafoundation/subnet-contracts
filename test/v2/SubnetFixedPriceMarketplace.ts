@@ -87,7 +87,9 @@ describe("SubnetFixedPriceMarketplace", function () {
                 1, // gpuCores
                 16 * 1024, // memoryMB
                 500, // diskGB
-                "test-specs"
+                "test-specs",
+                [], // blacklistedProviders
+                []  // whitelistedProviders
             );
             
             const receipt = await tx.wait();
@@ -102,7 +104,7 @@ describe("SubnetFixedPriceMarketplace", function () {
     describe("Provider Acceptance", function() {
         beforeEach(async function() {
             await (marketplace.connect(client1) as any).createOrder(
-                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs"
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs", [], []
             );
         });
 
@@ -140,7 +142,7 @@ describe("SubnetFixedPriceMarketplace", function () {
         it("should reject if provider does not meet requirements", async function() {
             // Create order with higher requirements
             await (marketplace.connect(client1) as any).createOrder(
-                1, 3600, ethers.parseEther("10"), 2, 100, 100, 16 * 1024, 500, "specs"
+                1, 3600, ethers.parseEther("10"), 2, 100, 100, 16 * 1024, 500, "specs", [], []
             );
             
             await expect(
@@ -152,7 +154,7 @@ describe("SubnetFixedPriceMarketplace", function () {
     describe("Payment Claiming", function() {
         beforeEach(async function() {
             await (marketplace.connect(client1) as any).createOrder(
-                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs"
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs", [], []
             );
             await marketplace.connect(provider1).acceptOrderByProvider(1);
             
@@ -190,7 +192,7 @@ describe("SubnetFixedPriceMarketplace", function () {
     describe("Closing Acceptance", function() {
         beforeEach(async function() {
             await (marketplace.connect(client1) as any).createOrder(
-                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs"
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs", [], []
             );
             await marketplace.connect(provider1).acceptOrderByProvider(1);
             await paymentToken.connect(client1).approve(await marketplace.getAddress(), ethers.parseEther("10000000"));
@@ -227,7 +229,7 @@ describe("SubnetFixedPriceMarketplace", function () {
     describe("Order Cancellation", function() {
         beforeEach(async function() {
             await (marketplace.connect(client1) as any).createOrder(
-                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs"
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs", [], []
             );
         });
 
@@ -242,6 +244,242 @@ describe("SubnetFixedPriceMarketplace", function () {
             await expect(
                 marketplace.connect(provider1).cancelOrder(1)
             ).to.be.revertedWith("Only order owner can cancel");
+        });
+    });
+
+    describe("Blacklist", function() {
+        beforeEach(async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs", [], []
+            );
+        });
+
+        it("should blacklist providers when creating order", async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs",
+                [provider1.address], // blacklistedProviders
+                []  // whitelistedProviders
+            );
+
+            expect(await (marketplace as any).isProviderBlacklisted(2, provider1.address)).to.be.true;
+            expect(await (marketplace as any).isProviderBlacklisted(2, provider2.address)).to.be.false;
+        });
+
+        it("should prevent blacklisted provider from accepting order", async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs",
+                [provider1.address], // blacklistedProviders
+                []  // whitelistedProviders
+            );
+
+            await expect(
+                marketplace.connect(provider1).acceptOrderByProvider(2)
+            ).to.be.revertedWith("Provider is blacklisted");
+
+            // provider2 should be able to accept
+            await marketplace.connect(provider2).acceptOrderByProvider(2);
+            const acceptances = await marketplace.getProviderAcceptances(2);
+            expect(acceptances.length).to.equal(1);
+            expect(acceptances[0].provider).to.equal(provider2.address);
+        });
+
+        it("should prevent blacklisted provider from claiming payment", async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs",
+                [], []  // no blacklist initially
+            );
+            
+            await marketplace.connect(provider1).acceptOrderByProvider(2);
+            await paymentToken.connect(client1).approve(await marketplace.getAddress(), ethers.parseEther("10000000"));
+            
+            await ethers.provider.send("evm_increaseTime", [1800]);
+            await ethers.provider.send("evm_mine", []);
+
+            // Blacklist provider1
+            await (marketplace.connect(client1) as any).updateOrderBlacklist(
+                2,
+                [provider1.address],
+                [true]
+            );
+
+            // Provider1 should not be able to claim payment
+            await expect(
+                marketplace.connect(provider1).claimPaymentForFixedPrice(2, 0)
+            ).to.be.revertedWith("Provider is blacklisted");
+        });
+
+        it("should not pay blacklisted provider when closing acceptance", async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs",
+                [], []  // no blacklist initially
+            );
+            
+            await marketplace.connect(provider1).acceptOrderByProvider(2);
+            await paymentToken.connect(client1).approve(await marketplace.getAddress(), ethers.parseEther("10000000"));
+            
+            await ethers.provider.send("evm_increaseTime", [1800]);
+            await ethers.provider.send("evm_mine", []);
+
+            // Blacklist provider1
+            await (marketplace.connect(client1) as any).updateOrderBlacklist(
+                2,
+                [provider1.address],
+                [true]
+            );
+
+            const balanceBefore = await paymentToken.balanceOf(provider1.address);
+            await marketplace.connect(provider1).closeProviderAcceptance(2, 0);
+            const balanceAfter = await paymentToken.balanceOf(provider1.address);
+
+            // Provider should not receive payment
+            expect(balanceAfter).to.equal(balanceBefore);
+
+            // But acceptance should be closed
+            const acceptances = await marketplace.getProviderAcceptances(2);
+            expect(acceptances[0].isActive).to.be.false;
+        });
+
+        it("should allow order owner to update blacklist", async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs",
+                [], []  // no blacklist initially
+            );
+
+            // Add to blacklist
+            await (marketplace.connect(client1) as any).updateOrderBlacklist(
+                1,
+                [provider1.address],
+                [true]
+            );
+            expect(await (marketplace as any).isProviderBlacklisted(1, provider1.address)).to.be.true;
+
+            // Remove from blacklist
+            await (marketplace.connect(client1) as any).updateOrderBlacklist(
+                1,
+                [provider1.address],
+                [false]
+            );
+            expect(await (marketplace as any).isProviderBlacklisted(1, provider1.address)).to.be.false;
+
+            // Provider should be able to accept now
+            await marketplace.connect(provider1).acceptOrderByProvider(1);
+        });
+
+        it("should allow blacklisting provider with active acceptance", async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs",
+                [], []  // no blacklist initially
+            );
+            
+            await marketplace.connect(provider1).acceptOrderByProvider(1);
+            await paymentToken.connect(client1).approve(await marketplace.getAddress(), ethers.parseEther("10000000"));
+
+            // Should be able to blacklist even with active acceptance
+            await (marketplace.connect(client1) as any).updateOrderBlacklist(
+                1,
+                [provider1.address],
+                [true]
+            );
+            expect(await (marketplace as any).isProviderBlacklisted(1, provider1.address)).to.be.true;
+        });
+    });
+
+    describe("Whitelist", function() {
+        beforeEach(async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs", [], []
+            );
+        });
+
+        it("should whitelist providers when creating order", async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs",
+                [], // blacklistedProviders
+                [provider1.address]  // whitelistedProviders
+            );
+
+            expect(await (marketplace as any).isProviderWhitelisted(2, provider1.address)).to.be.true;
+            expect(await (marketplace as any).isProviderWhitelisted(2, provider2.address)).to.be.false;
+            expect(await (marketplace as any).orderWhitelistCount(2)).to.equal(1);
+        });
+
+        it("should only allow whitelisted providers to accept when whitelist exists", async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs",
+                [], // blacklistedProviders
+                [provider1.address]  // whitelistedProviders
+            );
+
+            // Whitelisted provider should be able to accept
+            await marketplace.connect(provider1).acceptOrderByProvider(2);
+            const acceptances = await marketplace.getProviderAcceptances(2);
+            expect(acceptances.length).to.equal(1);
+            expect(acceptances[0].provider).to.equal(provider1.address);
+
+            // Non-whitelisted provider should not be able to accept
+            await expect(
+                marketplace.connect(provider2).acceptOrderByProvider(2)
+            ).to.be.revertedWith("Provider is not whitelisted");
+        });
+
+        it("should allow all providers to accept when no whitelist exists", async function() {
+            // Use order from beforeEach (orderId = 1, no whitelist)
+            expect(await (marketplace as any).orderWhitelistCount(1)).to.equal(0);
+
+            // Both providers should be able to accept
+            await marketplace.connect(provider1).acceptOrderByProvider(1);
+            await marketplace.connect(provider2).acceptOrderByProvider(1);
+
+            const acceptances = await marketplace.getProviderAcceptances(1);
+            expect(acceptances.length).to.equal(2);
+        });
+
+        it("should allow order owner to update whitelist", async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs",
+                [], [provider1.address]  // whitelist provider1
+            );
+            // Order ID will be 2 (because beforeEach created order 1)
+
+            // Add provider2 to whitelist
+            await (marketplace.connect(client1) as any).updateOrderWhitelist(
+                2,
+                [provider2.address],
+                [true]
+            );
+            expect(await (marketplace as any).isProviderWhitelisted(2, provider2.address)).to.be.true;
+            expect(await (marketplace as any).orderWhitelistCount(2)).to.equal(2);
+
+            // Remove provider1 from whitelist
+            await (marketplace.connect(client1) as any).updateOrderWhitelist(
+                2,
+                [provider1.address],
+                [false]
+            );
+            expect(await (marketplace as any).isProviderWhitelisted(2, provider1.address)).to.be.false;
+            expect(await (marketplace as any).orderWhitelistCount(2)).to.equal(1);
+
+            // provider1 should not be able to accept anymore
+            await expect(
+                marketplace.connect(provider1).acceptOrderByProvider(2)
+            ).to.be.revertedWith("Provider is not whitelisted");
+
+            // provider2 should still be able to accept
+            await marketplace.connect(provider2).acceptOrderByProvider(2);
+        });
+
+        it("should prioritize blacklist over whitelist", async function() {
+            await (marketplace.connect(client1) as any).createOrder(
+                1, 3600, ethers.parseEther("10"), 2, 4, 1, 16 * 1024, 500, "specs",
+                [provider1.address], // blacklistedProviders
+                [provider1.address]  // whitelistedProviders (same provider)
+            );
+            // Order ID will be 2 (because beforeEach created order 1)
+
+            // Even though provider1 is whitelisted, they are blacklisted so cannot accept
+            await expect(
+                marketplace.connect(provider1).acceptOrderByProvider(2)
+            ).to.be.revertedWith("Provider is blacklisted");
         });
     });
 });
