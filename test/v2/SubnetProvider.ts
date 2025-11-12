@@ -147,7 +147,7 @@ describe("SubnetProvider", function () {
                 (subnetProvider as any).updateProviderSpecs(
                     owner.address, 1, 2, 4, 1, 16 * 1024, 500
                 )
-            ).to.be.revertedWith("Cannot decrease CPU cores");
+            ).to.be.revertedWith("Cannot decrease mCPU");
         });
 
         it("should deactivate and allow withdrawal after lock period", async function() {
@@ -179,8 +179,12 @@ describe("SubnetProvider", function () {
                 cpu, gpu, memMB, diskGB, priceCpu, priceGpu, priceMem, priceDisk
             );
 
-            const memoryGB = memMB / 1024n;
-            const revenuePerSecond = cpu * priceCpu + gpu * priceGpu + memoryGB * priceMem + diskGB * priceDisk;
+            // Calculate revenue per second using new precision-aware logic
+            // CPU: (mCPU * price per CPU) / 1000
+            // Memory: (MB * price per GB) / 1024
+            const cpuRevenue = (cpu * priceCpu) / 1000n;
+            const memoryRevenue = (memMB * priceMem) / 1024n;
+            const revenuePerSecond = cpuRevenue + (gpu * priceGpu) + memoryRevenue + (diskGB * priceDisk);
             const revenueSeconds = BigInt(revenueDays) * 24n * 60n * 60n;
             const revenueStake = revenuePerSecond * revenueSeconds;
             const expected = (revenueStake * ratioBps) / 10_000n;
