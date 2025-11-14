@@ -3,6 +3,8 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "./BaseMarketplace.sol";
 import "./ISubnetProvider.sol";
 
@@ -12,6 +14,8 @@ import "./ISubnetProvider.sol";
  */
 contract SubnetBidMarketplace is BaseMarketplace {
     using SafeERC20 for IERC20;
+    using ECDSA for bytes32;
+    using MessageHashUtils for bytes32;
 
     enum BidStatus { Pending, Accepted, Cancelled }
 
@@ -48,6 +52,8 @@ contract SubnetBidMarketplace is BaseMarketplace {
     uint256 public orderCount;
     mapping(uint256 => Order) public orders;
     mapping(uint256 => Bid[]) public orderBids;
+    mapping(bytes32 => bool) public usedSignatures; // Track used signatures to prevent replay attacks
+    mapping(bytes32 => bool) public cancelledSignatures; // Track cancelled signature hashes
 
     event OrderCreated(uint256 indexed orderId, address owner, uint256 duration);
     event BidSubmitted(uint256 indexed orderId, address indexed provider, uint256 bidIndex);
@@ -57,6 +63,8 @@ contract SubnetBidMarketplace is BaseMarketplace {
     event OrderExtended(uint256 indexed orderId, uint256 additionalDuration, uint256 newExpiry);
     event OrderClosed(uint256 indexed orderId, uint256 refundAmount, string reason);
     event BidTimeLimitUpdated(uint256 oldLimit, uint256 newLimit);
+    event BidAcceptedWithSignature(uint256 indexed orderId, address indexed provider, uint256 bidIndex, uint256 pricePerSecond, bytes32 signatureHash);
+    event BidCancelledWithSignature(bytes32 indexed signatureHash, address indexed provider);
 
     function initialize(
         address owner,
@@ -187,6 +195,96 @@ contract SubnetBidMarketplace is BaseMarketplace {
         emit BidAccepted(orderId, bid.provider, bidIndex, bid.pricePerSecond);
     }
 
+    /**
+     * @dev Accept a bid using an off-chain signature from the provider
+     * @param orderId The order ID
+     * @param provider The provider address that signed the bid
+     * @param pricePerSecond The price per second for the bid
+     * @param signature The signature from the provider
+     */
+    function acceptBidWithSignature(
+        uint256 orderId,
+        address provider,
+        uint256 pricePerSecond,
+        bytes memory signature
+    ) external {
+        Order storage order = orders[orderId];
+        require(order.owner == msg.sender, "Only order owner can accept");
+        require(order.status == OrderStatus.Open, "Order not open");
+        require(block.timestamp <= order.createdAt + bidTimeLimit, "Bidding time expired");
+        require(pricePerSecond >= order.minBidPrice, "Bid price below minimum");
+        require(pricePerSecond <= order.maxBidPrice, "Bid price above maximum");
+
+        ISubnetProvider providerContract = ISubnetProvider(subnetProviderContract);
+        require(providerContract.isProviderActive(provider), "Provider is not active");
+        require(
+            providerContract.validateProviderRequirements(
+                order.machineType,
+                provider,
+                order.cpuCores,
+                order.memoryMB,
+                order.diskGB,
+                order.gpuCores
+            ),
+            "Provider does not meet requirements"
+        );
+
+        // Create the message hash
+        bytes32 dataHash = keccak256(
+            abi.encodePacked(
+                orderId,
+                provider,
+                pricePerSecond,
+                address(this),
+                block.chainid
+            )
+        );
+
+        // Add Ethereum message prefix and verify signature
+        bytes32 ethSignedMessageHash = dataHash.toEthSignedMessageHash();
+        address signer = ethSignedMessageHash.recover(signature);
+        require(signer == provider, "Invalid signature");
+
+        // Check for replay attack and cancellation
+        bytes32 signatureHash = keccak256(signature);
+        require(!usedSignatures[signatureHash], "Signature already used");
+        require(!cancelledSignatures[signatureHash], "Signature has been cancelled");
+        usedSignatures[signatureHash] = true;
+
+        // Process payment
+        require(order.paymentToken != address(0), "Payment token not set");
+        uint256 totalCost = pricePerSecond * order.duration;
+        IERC20(order.paymentToken).safeTransferFrom(msg.sender, address(this), totalCost);
+
+        // Lock resources
+        providerContract.lockResources(
+            provider,
+            order.cpuCores,
+            order.gpuCores,
+            order.memoryMB,
+            order.diskGB
+        );
+
+        // Create bid entry
+        orderBids[orderId].push(Bid({
+            provider: provider,
+            pricePerSecond: pricePerSecond,
+            status: BidStatus.Accepted,
+            createdAt: block.timestamp
+        }));
+        uint256 bidIndex = orderBids[orderId].length - 1;
+
+        // Update order
+        order.status = OrderStatus.Matched;
+        order.acceptedBidPricePerSecond = pricePerSecond;
+        order.acceptedProvider = provider;
+        order.startAt = block.timestamp;
+        order.expiredAt = block.timestamp + order.duration;
+        order.lastPaidAt = block.timestamp;
+
+        emit BidAcceptedWithSignature(orderId, provider, bidIndex, pricePerSecond, signatureHash);
+    }
+
     function isBiddingOpen(uint256 orderId) public view returns (bool) {
         Order storage order = orders[orderId];
         return (order.status == OrderStatus.Open && 
@@ -283,6 +381,43 @@ contract SubnetBidMarketplace is BaseMarketplace {
 
         bid.status = BidStatus.Cancelled;
         emit BidCancelled(orderId, bid.provider, bidIndex);
+    }
+
+    /**
+     * @dev Cancel a bid signature to prevent it from being accepted
+     * @param signature The signature to cancel
+     * @param orderId The order ID that the signature is for
+     * @param pricePerSecond The price per second in the signature
+     */
+    function cancelBidWithSignature(
+        bytes memory signature,
+        uint256 orderId,
+        uint256 pricePerSecond
+    ) external {
+        address provider = msg.sender;
+        
+        // Verify the signature belongs to the caller
+        bytes32 dataHash = keccak256(
+            abi.encodePacked(
+                orderId,
+                provider,
+                pricePerSecond,
+                address(this),
+                block.chainid
+            )
+        );
+        
+        bytes32 ethSignedMessageHash = dataHash.toEthSignedMessageHash();
+        address signer = ethSignedMessageHash.recover(signature);
+        require(signer == provider, "Invalid signature or not the signer");
+        
+        // Mark signature hash as cancelled
+        bytes32 signatureHash = keccak256(signature);
+        require(!usedSignatures[signatureHash], "Signature already used");
+        require(!cancelledSignatures[signatureHash], "Signature already cancelled");
+        
+        cancelledSignatures[signatureHash] = true;
+        emit BidCancelledWithSignature(signatureHash, provider);
     }
 
     function claimPayment(uint256 orderId) external {
