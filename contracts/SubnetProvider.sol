@@ -530,7 +530,8 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
     }
 
     /**
-     * @dev Update price per resource (provider owner or operator only)
+     * @dev Update price per resource (provider owner only)
+     *      If required stake increases, additional stake will be collected
      * @param providerId Provider address
      * @param cpuPricePerSecond Price per 1 CPU per second (not per mCPU)
      * @param gpuPricePerSecond GPU price per second
@@ -543,13 +544,41 @@ contract SubnetProvider is Initializable, OwnableUpgradeable {
         uint256 gpuPricePerSecond,
         uint256 memoryPricePerSecond,
         uint256 diskPricePerSecond
-    ) external onlyProviderOperatorOrOwner(providerId) {
+    ) external {
         Provider storage provider = providers[providerId];
+        require(provider.registered, "Provider not registered");
+        require(provider.isActive, "Provider not active");
+        require(providerId == msg.sender, "Only owner can update prices");
+        
+        // Calculate new required stake with updated prices
+        uint256 newRequiredStake = calculateRequiredStake(
+            provider.cpuCores,
+            provider.gpuCores,
+            provider.memoryMB,
+            provider.diskGB,
+            cpuPricePerSecond,
+            gpuPricePerSecond,
+            memoryPricePerSecond,
+            diskPricePerSecond
+        );
+        
+        uint256 currentStake = provider.stakeAmount;
+        
+        // If new required stake is greater, collect additional stake
+        if (newRequiredStake > currentStake) {
+            uint256 additionalStake = newRequiredStake - currentStake;
+            IERC20(stakingToken).safeTransferFrom(msg.sender, address(this), additionalStake);
+            provider.totalStaked += additionalStake;
+            provider.stakeAmount = newRequiredStake;
+        }
+        
+        // Update prices
         provider.cpuPricePerSecond = cpuPricePerSecond;
         provider.gpuPricePerSecond = gpuPricePerSecond;
         provider.memoryPricePerSecond = memoryPricePerSecond;
         provider.diskPricePerSecond = diskPricePerSecond;
         provider.updatedAt = block.timestamp;
+        
         emit ResourcePriceUpdated(
             providerId,
             cpuPricePerSecond,

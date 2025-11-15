@@ -207,6 +207,212 @@ describe("SubnetProvider", function () {
         });
     });
 
+    describe("Resource Price Management", function() {
+        beforeEach(async function() {
+            await registerDefaultProvider();
+        });
+
+        it("should update resource prices without additional stake if required stake doesn't increase", async function() {
+            const providerBefore = await subnetProvider.getProvider(owner.address);
+            const stakeBefore = providerBefore.stakeAmount;
+            const balanceBefore = await stakingToken.balanceOf(owner.address);
+
+            // Set lower prices (should not require additional stake)
+            await (subnetProvider as any).setResourcePrice(
+                owner.address,
+                1, // cpuPricePerSecond (same)
+                2, // gpuPricePerSecond (same)
+                2, // memoryPricePerSecond (lower: 3 -> 2)
+                3, // diskPricePerSecond (lower: 4 -> 3)
+            );
+
+            const providerAfter = await subnetProvider.getProvider(owner.address);
+            const balanceAfter = await stakingToken.balanceOf(owner.address);
+
+            // Prices should be updated
+            expect(providerAfter.cpuPricePerSecond).to.equal(1);
+            expect(providerAfter.gpuPricePerSecond).to.equal(2);
+            expect(providerAfter.memoryPricePerSecond).to.equal(2);
+            expect(providerAfter.diskPricePerSecond).to.equal(3);
+
+            // Stake should remain the same (or could be less, but we don't refund)
+            expect(providerAfter.stakeAmount).to.equal(stakeBefore);
+            // Balance should not change (no additional stake required)
+            expect(balanceAfter).to.equal(balanceBefore);
+        });
+
+        it("should require additional stake when prices increase", async function() {
+            const providerBefore = await subnetProvider.getProvider(owner.address);
+            const stakeBefore = providerBefore.stakeAmount;
+            const balanceBefore = await stakingToken.balanceOf(owner.address);
+
+            // Calculate expected new stake with higher prices
+            const newCpuPrice = 2n; // doubled
+            const newGpuPrice = 4n; // doubled
+            const newMemPrice = 6n; // doubled
+            const newDiskPrice = 8n; // doubled
+
+            const expectedNewStake = await subnetProvider.calculateRequiredStake(
+                providerBefore.cpuCores,
+                providerBefore.gpuCores,
+                providerBefore.memoryMB,
+                providerBefore.diskGB,
+                newCpuPrice,
+                newGpuPrice,
+                newMemPrice,
+                newDiskPrice
+            );
+
+            // Set higher prices (should require additional stake)
+            await (subnetProvider as any).setResourcePrice(
+                owner.address,
+                newCpuPrice,
+                newGpuPrice,
+                newMemPrice,
+                newDiskPrice
+            );
+
+            const providerAfter = await subnetProvider.getProvider(owner.address);
+            const balanceAfter = await stakingToken.balanceOf(owner.address);
+            const additionalStake = expectedNewStake - stakeBefore;
+
+            // Prices should be updated
+            expect(providerAfter.cpuPricePerSecond).to.equal(newCpuPrice);
+            expect(providerAfter.gpuPricePerSecond).to.equal(newGpuPrice);
+            expect(providerAfter.memoryPricePerSecond).to.equal(newMemPrice);
+            expect(providerAfter.diskPricePerSecond).to.equal(newDiskPrice);
+
+            // Stake should be increased
+            expect(providerAfter.stakeAmount).to.equal(expectedNewStake);
+            expect(providerAfter.totalStaked).to.equal(providerBefore.totalStaked + additionalStake);
+
+            // Balance should decrease by additional stake amount
+            expect(balanceBefore - balanceAfter).to.equal(additionalStake);
+        });
+
+        it("should reject price update if provider is not active", async function() {
+            await subnetProvider.deactivateProvider(owner.address);
+
+            await expect(
+                (subnetProvider as any).setResourcePrice(
+                    owner.address,
+                    2, 4, 6, 8
+                )
+            ).to.be.revertedWith("Provider not active");
+        });
+
+        it("should reject price update if provider is not registered", async function() {
+            await expect(
+                (subnetProvider as any).setResourcePrice(
+                    addr2.address,
+                    2, 4, 6, 8
+                )
+            ).to.be.revertedWith("Provider not registered");
+        });
+
+        it("should only allow provider owner to update prices", async function() {
+            // Non-owner should not be able to update
+            await expect(
+                (subnetProvider.connect(addr1) as any).setResourcePrice(
+                    owner.address,
+                    2, 4, 6, 8
+                )
+            ).to.be.revertedWith("Only owner can update prices");
+
+            // Operator should not be able to update
+            await expect(
+                (subnetProvider.connect(operator) as any).setResourcePrice(
+                    owner.address,
+                    2, 4, 6, 8
+                )
+            ).to.be.revertedWith("Only owner can update prices");
+
+            // Owner should be able to update
+            await (subnetProvider as any).setResourcePrice(
+                owner.address,
+                2, 4, 6, 8
+            );
+
+            const provider = await subnetProvider.getProvider(owner.address);
+            expect(provider.cpuPricePerSecond).to.equal(2);
+        });
+
+        it("should handle partial price increases correctly", async function() {
+            const providerBefore = await subnetProvider.getProvider(owner.address);
+            const stakeBefore = providerBefore.stakeAmount;
+
+            // Calculate expected stake with partial price increase
+            const newCpuPrice = 10n; // Increase significantly to ensure stake increases
+            const expectedNewStake = await subnetProvider.calculateRequiredStake(
+                providerBefore.cpuCores,
+                providerBefore.gpuCores,
+                providerBefore.memoryMB,
+                providerBefore.diskGB,
+                newCpuPrice, // cpuPricePerSecond (increased)
+                providerBefore.gpuPricePerSecond, // same
+                providerBefore.memoryPricePerSecond, // same
+                providerBefore.diskPricePerSecond // same
+            );
+
+            // Only increase CPU price
+            await (subnetProvider as any).setResourcePrice(
+                owner.address,
+                newCpuPrice, // cpuPricePerSecond (increased)
+                providerBefore.gpuPricePerSecond, // same
+                providerBefore.memoryPricePerSecond, // same
+                providerBefore.diskPricePerSecond // same
+            );
+
+            const providerAfter = await subnetProvider.getProvider(owner.address);
+
+            // Prices should be updated
+            expect(providerAfter.cpuPricePerSecond).to.equal(newCpuPrice);
+            expect(providerAfter.gpuPricePerSecond).to.equal(providerBefore.gpuPricePerSecond);
+            expect(providerAfter.memoryPricePerSecond).to.equal(providerBefore.memoryPricePerSecond);
+            expect(providerAfter.diskPricePerSecond).to.equal(providerBefore.diskPricePerSecond);
+
+            // Stake should increase if expected stake is greater
+            if (expectedNewStake > stakeBefore) {
+                expect(providerAfter.stakeAmount).to.be.gt(stakeBefore);
+                expect(providerAfter.stakeAmount).to.equal(expectedNewStake);
+            } else {
+                // If stake doesn't increase (due to precision), it should at least remain the same
+                expect(providerAfter.stakeAmount).to.be.gte(stakeBefore);
+            }
+        });
+
+        it("should update prices multiple times and accumulate stake correctly", async function() {
+            const provider1 = await subnetProvider.getProvider(owner.address);
+            const stake1 = provider1.stakeAmount;
+
+            // First price increase
+            await (subnetProvider as any).setResourcePrice(
+                owner.address,
+                2, 4, 6, 8
+            );
+
+            const provider2 = await subnetProvider.getProvider(owner.address);
+            const stake2 = provider2.stakeAmount;
+            expect(stake2).to.be.gt(stake1);
+
+            // Second price increase
+            await (subnetProvider as any).setResourcePrice(
+                owner.address,
+                3, 6, 9, 12
+            );
+
+            const provider3 = await subnetProvider.getProvider(owner.address);
+            const stake3 = provider3.stakeAmount;
+            expect(stake3).to.be.gt(stake2);
+
+            // Verify final prices
+            expect(provider3.cpuPricePerSecond).to.equal(3);
+            expect(provider3.gpuPricePerSecond).to.equal(6);
+            expect(provider3.memoryPricePerSecond).to.equal(9);
+            expect(provider3.diskPricePerSecond).to.equal(12);
+        });
+    });
+
     describe("Helper Functions and Status Checks", function() {
         beforeEach(async function() {
             await registerDefaultProvider();
